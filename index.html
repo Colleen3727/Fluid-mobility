@@ -1387,12 +1387,6 @@ textarea.q-input { min-height: 60px; line-height: 1.6; }
   color: #fff;
   flex: 1.5;
 }
-.card-btn-msg {
-  background: rgba(255,255,255,0.92);
-  color: #6aadae;
-  flex: 1;
-}
-.card-btn-msg svg { width: 16px; height: 16px; stroke: #6aadae; fill: none; }
 
 /* unused old classes — kept empty so no layout breaks */
 .card-num, .card-label, .card-title, .card-body, .card-foot, .card-scribble { display: none; }
@@ -3319,9 +3313,6 @@ function shuffle(arr) {
         <div class="card-actions">
           <button class="card-btn card-btn-pass" data-action="pass">✕</button>
           <button class="card-btn card-btn-like" data-action="like">♥</button>
-          <button class="card-btn card-btn-msg" data-action="msg">
-            <svg viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-          </button>
         </div>
       </div>`;
 
@@ -3332,8 +3323,6 @@ function shuffle(arr) {
         e.stopPropagation();
         if (btn.dataset.action === 'like') {
           openPersona(p);
-        } else if (btn.dataset.action === 'msg') {
-          if (window.openChat) window.openChat(p);
         } else {
           /* always advance exactly one card forward */
           const cur = frontSlot();
