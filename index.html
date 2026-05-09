@@ -1,0 +1,4142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Fair Vanity">
+<meta name="theme-color" content="#f4f1ec">
+<link rel="manifest" href="manifest.json">
+<title>Fair Vanity</title>
+<link href="https://fonts.googleapis.com/css2?family=Fredericka+the+Great&family=Viaoda+Libre&family=Workbench&family=Handjet&family=Courier+Prime:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<script type="module">
+/* ══════════════════════════════════════════
+   FIREBASE — realtime presence + globe
+══════════════════════════════════════════ */
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+import { getDatabase, ref, set, onValue, onDisconnect, push, remove, serverTimestamp }
+  from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js';
+
+const firebaseConfig = {
+  apiKey: "AIzaSyC_AHGwXamtlHRFu0riPkxZQ02_N3oJT08",
+  authDomain: "final-aeae0.firebaseapp.com",
+  databaseURL: "https://final-aeae0-default-rtdb.firebaseio.com",
+  projectId: "final-aeae0",
+  storageBucket: "final-aeae0.firebasestorage.app",
+  messagingSenderId: "327732422378",
+  appId: "1:327732422378:web:1c8eb093fb266b147b5993"
+};
+
+const app = initializeApp(firebaseConfig);
+const db  = getDatabase(app);
+
+/* ── get location: browser GPS first, IP APIs as fallback ── */
+async function getGeo() {
+  /* 1. browser Geolocation — most accurate, works even behind VPN/firewall */
+  const fromBrowser = () => new Promise(resolve => {
+    if (!navigator.geolocation) { resolve(null); return; }
+    navigator.geolocation.getCurrentPosition(
+      pos => resolve({ city: 'Here', country: '', lat: pos.coords.latitude, lon: pos.coords.longitude }),
+      ()  => resolve(null),
+      { timeout: 8000, maximumAge: 60000 }
+    );
+  });
+
+  const browserGeo = await fromBrowser();
+  if (browserGeo) {
+    /* try to get city name from IP API in background, but use browser coords */
+    try {
+      const d = await Promise.race([
+        fetch('https://ipwho.is/').then(r => r.json()),
+        new Promise((_, rej) => setTimeout(rej, 3000)),
+      ]);
+      if (d && d.city) { browserGeo.city = d.city; browserGeo.country = d.country || ''; }
+    } catch {}
+    return browserGeo;
+  }
+
+  /* 2. IP API fallbacks */
+  const apis = [
+    () => fetch('https://ipwho.is/').then(r => r.json()).then(d => {
+      if (!d.success || !d.latitude) throw 0;
+      return { city: d.city || '', country: d.country || '', lat: d.latitude, lon: d.longitude };
+    }),
+    () => fetch('https://freeipapi.com/api/json').then(r => r.json()).then(d => {
+      if (!d.latitude) throw 0;
+      return { city: d.cityName || '', country: d.countryName || '', lat: d.latitude, lon: d.longitude };
+    }),
+    () => fetch('https://ipapi.co/json/').then(r => r.json()).then(d => {
+      if (!d.latitude) throw 0;
+      return { city: d.city || '', country: d.country_name || '', lat: d.latitude, lon: d.longitude };
+    }),
+  ];
+  for (const fn of apis) {
+    try {
+      const geo = await Promise.race([fn(), new Promise((_, rej) => setTimeout(rej, 4000))]);
+      if (geo && geo.lat) return geo;
+    } catch {}
+  }
+
+  return { city: 'Unknown', country: '', lat: 0, lon: 0 };
+}
+
+/* ── register presence ── */
+async function registerPresence() {
+  /* wait for onboarding data */
+  let profile = {};
+  try { profile = JSON.parse(localStorage.getItem('fv-onboarding')) || {}; } catch {}
+  let pName = {};
+  try { pName = JSON.parse(localStorage.getItem('fv-profile-v1')) || {}; } catch {}
+
+  const nickname = pName['profile-name'] || profile.nickname || 'Visitor';
+  const tags     = profile.tags || [];
+
+  const geo = await getGeo();
+
+  const usersRef = ref(db, 'users');
+  const meRef    = push(usersRef);
+
+  const meData = {
+    nickname,
+    tags,
+    city:    geo.city,
+    country: geo.country,
+    lat:     geo.lat,
+    lon:     geo.lon,
+    ts:      serverTimestamp(),
+  };
+
+  await set(meRef, meData);
+  onDisconnect(meRef).remove();   /* auto-remove on disconnect */
+
+  /* expose uid + profile for globe rendering */
+  window._fvMyUid  = meRef.key;
+  window._fvMyLat  = geo.lat;
+  window._fvMyLon  = geo.lon;
+  window._fvMyTags = tags;
+  window._fvProfile = { nickname };
+  return meRef.key;
+}
+
+/* ── listen to all users ── */
+function listenUsers(cb) {
+  onValue(ref(db, 'users'), snap => {
+    const users = [];
+    snap.forEach(child => {
+      users.push({ uid: child.key, ...child.val() });
+    });
+    cb(users);
+  });
+}
+
+/* ── distance between two lat/lon (km) ── */
+function haversine(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat/2)**2 +
+    Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+/* ── tag match score ── */
+function matchScore(tagsA, tagsB) {
+  if (!tagsA?.length || !tagsB?.length) return 0;
+  const setB = new Set(tagsB);
+  return tagsA.filter(t => setB.has(t)).length;
+}
+
+/* ── continent outlines from Natural Earth 110m [lat,lon] ── */
+/* Natural Earth 110m land polygons [lat, lon] — auto-extracted, area > 200 deg² */
+const CONTINENTS = [
+  /* Antarctica */
+  [[-64.2,-58.6],[-65.1,-62.5],[-66.8,-64.3],[-68.9,-64.0],[-71.1,-61.5],[-74.1,-61.4],[-75.8,-67.2],[-76.7,-75.6],[-78.2,-74.8],[-79.9,-76.6],[-81.5,-65.7],[-82.9,-57.0],[-81.8,-44.8],[-80.9,-34.4],[-79.3,-29.7],[-78.1,-35.3],[-76.5,-27.5],[-75.7,-20.0],[-73.9,-16.5],[-72.0,-11.5],[-71.3,-7.4],[-71.2,-1.8],[-70.9,4.1],[-70.0,9.5],[-70.0,14.7],[-70.0,20.4],[-70.5,26.0],[-69.7,32.0],[-69.2,36.2],[-68.9,40.9],[-67.6,46.5],[-66.5,50.9],[-66.0,56.4],[-67.7,60.6],[-67.7,66.0],[-69.7,69.6],[-71.4,68.4],[-71.3,71.9],[-69.7,75.6],[-68.1,80.1],[-67.2,84.7],[-67.0,88.8],[-67.1,94.2],[-67.2,99.7],[-66.0,104.2],[-66.7,110.2],[-66.4,114.9],[-67.2,120.9],[-66.6,126.1],[-66.4,131.8],[-65.6,135.7],[-66.9,139.9],[-67.2,146.2],[-68.7,151.5],[-69.4,156.8],[-70.7,162.7],[-71.2,169.5],[-73.2,169.8],[-75.1,165.0],[-77.5,164.1],[-79.1,163.7],[-81.3,161.1],[-83.3,168.9],[-84.5,178.3],[-84.1,-179.1],[-84.1,-176.1],[-83.9,-170.0],[-85.4,-158.1],[-84.6,-142.9],[-82.8,-153.0],[-81.2,-154.4],[-79.9,-146.8],[-78.7,-156.0],[-77.2,-155.3],[-76.6,-147.6],[-75.5,-144.3],[-74.5,-136.4],[-74.5,-129.6],[-74.5,-121.1],[-73.7,-113.9],[-74.9,-108.7],[-75.3,-100.6],[-73.4,-103.3],[-73.2,-98.1],[-73.4,-91.4],[-73.5,-85.2],[-73.5,-79.3],[-73.4,-72.8],[-72.0,-67.1],[-69.7,-68.5],[-67.3,-67.7],[-65.2,-64.2],[-64.0,-59.9],[-64.2,-58.6]],
+  /* Australia */
+  [[-13.8,143.6],[-14.2,144.6],[-15.0,145.4],[-16.3,145.5],[-16.9,145.9],[-18.3,146.1],[-19.5,147.5],[-20.4,148.8],[-21.3,149.3],[-22.1,150.1],[-22.4,150.7],[-24.1,151.6],[-25.3,152.9],[-26.6,153.2],[-28.1,153.6],[-29.5,153.3],[-30.9,153.1],[-32.6,152.5],[-33.8,151.3],[-35.2,150.7],[-36.4,150.1],[-37.4,150.0],[-37.8,148.3],[-38.6,146.9],[-38.6,145.5],[-37.9,145.0],[-38.8,143.6],[-38.4,142.2],[-38.0,140.6],[-36.6,139.8],[-35.7,139.1],[-35.1,138.4],[-35.1,137.7],[-34.7,137.4],[-33.6,137.9],[-33.8,137.0],[-34.9,136.0],[-33.9,135.2],[-32.8,134.1],[-32.0,133.0],[-31.5,131.3],[-31.9,128.2],[-32.2,126.1],[-33.0,124.2],[-33.9,123.7],[-34.0,122.2],[-33.9,120.6],[-34.5,119.3],[-34.7,118.5],[-35.0,117.3],[-34.4,115.6],[-33.6,115.0],[-33.3,115.7],[-32.2,115.8],[-30.6,115.2],[-29.5,115.0],[-28.5,114.6],[-27.3,114.0],[-26.1,113.3],[-25.6,113.4],[-26.3,114.2],[-25.0,113.7],[-24.4,113.4],[-23.6,113.7],[-22.5,113.7],[-22.5,114.2],[-21.5,115.5],[-20.7,116.7],[-20.7,117.4],[-20.3,118.8],[-20.0,119.3],[-19.7,120.9],[-18.7,121.7],[-17.8,122.3],[-16.4,123.0],[-17.1,123.9],[-16.1,123.8],[-15.6,124.4],[-14.7,125.2],[-14.2,125.7],[-14.1,126.1],[-13.8,127.1],[-14.9,128.4],[-15.0,129.6],[-13.6,129.9],[-13.1,130.2],[-12.2,131.2],[-12.1,132.6],[-11.3,131.8],[-11.4,133.0],[-12.0,134.4],[-12.2,135.3],[-12.0,136.3],[-12.4,137.0],[-13.3,136.3],[-13.7,136.1],[-14.7,135.4],[-15.6,136.3],[-16.2,137.6],[-16.8,138.6],[-17.4,139.3],[-17.4,140.9],[-16.4,141.3],[-15.0,141.7],[-14.3,141.6],[-12.9,141.7],[-12.4,141.7],[-11.3,142.1],[-10.7,142.5],[-11.8,142.9],[-12.3,143.2],[-13.4,143.6]],
+  /* Americas (North + South + Central) */
+  [[69.5,-90.5],[69.2,-81.3],[64.1,-88.5],[57.1,-92.3],[52.2,-81.4],[58.8,-78.5],[61.1,-69.6],[56.3,-61.8],[51.1,-58.8],[48.3,-68.7],[45.9,-59.8],[44.3,-68.0],[41.5,-70.6],[40.5,-74.3],[37.2,-75.9],[36.6,-75.9],[30.7,-81.5],[25.6,-81.3],[30.2,-85.8],[29.1,-90.2],[26.7,-97.4],[20.6,-97.2],[19.9,-90.5],[19.5,-87.4],[17.0,-88.2],[15.8,-87.5],[15.8,-84.4],[12.9,-83.5],[9.2,-82.2],[9.4,-78.5],[11.3,-74.2],[10.4,-71.6],[11.4,-68.9],[10.4,-62.7],[6.3,-57.5],[3.7,-51.1],[-2.1,-44.4],[-7.3,-34.7],[-18.3,-39.6],[-25.9,-48.5],[-34.4,-53.8],[-36.9,-56.8],[-41.1,-65.1],[-46.3,-67.6],[-52.3,-69.5],[-48.7,-75.6],[-41.8,-74.0],[-28.9,-71.5],[-14.6,-76.0],[-4.7,-81.4],[0.4,-80.0],[4.1,-77.5],[9.0,-79.1],[7.6,-81.2],[9.1,-83.6],[10.4,-85.8],[13.0,-87.3],[14.1,-91.7],[16.7,-99.7],[20.8,-105.5],[26.4,-109.3],[31.6,-113.9],[28.4,-113.0],[23.4,-109.4],[26.8,-113.5],[30.2,-115.9],[34.6,-120.6],[42.8,-124.5],[49.0,-122.8],[55.2,-131.1],[60.0,-144.0],[61.0,-150.3],[56.0,-158.4],[56.0,-160.6],[58.6,-160.0],[61.5,-166.1],[64.8,-160.8],[66.6,-163.7],[69.9,-162.9],[70.4,-150.7],[69.3,-135.6],[69.4,-124.3],[67.8,-110.8],[67.6,-101.5],[70.1,-96.5]],
+  /* Europe + Asia + Africa (Afro-Eurasia) */
+  [[77.0,107.0],[73.6,118.8],[71.5,139.9],[69.0,170.8],[62.5,177.4],[56.1,162.1],[60.3,161.9],[59.0,142.2],[44.0,135.5],[39.3,127.5],[37.9,125.7],[39.4,121.6],[36.9,122.5],[27.1,120.4],[21.6,108.1],[10.5,104.3],[6.7,101.6],[3.9,100.7],[13.1,98.5],[21.7,92.0],[18.3,83.9],[8.3,77.9],[22.1,69.2],[26.5,54.7],[26.7,50.2],[24.2,52.6],[22.7,59.5],[17.9,55.7],[13.4,46.7],[15.9,42.8],[24.9,37.2],[28.0,33.6],[19.8,37.1],[11.3,43.5],[11.2,51.0],[-2.5,40.6],[-10.8,40.5],[-21.8,35.4],[-28.8,32.2],[-33.9,22.6],[-29.9,17.1],[-15.8,11.8],[-6.3,12.2],[3.9,8.9],[5.0,-1.1],[7.3,-12.4],[12.4,-16.7],[21.4,-17.0],[29.1,-10.4],[35.9,-0.1],[35.9,10.6],[30.5,19.6],[31.2,29.7],[34.6,36.0],[37.7,27.0],[42.0,41.7],[46.6,35.8],[46.6,30.7],[40.6,26.0],[37.9,23.1],[41.7,19.5],[45.5,13.7],[40.2,18.5],[40.6,14.7],[42.5,3.0],[36.0,-5.9],[41.5,-9.0],[48.9,-3.3],[54.4,8.6],[55.0,9.9],[56.0,21.1],[60.5,28.1],[64.4,21.4],[59.5,10.4],[71.0,26.4],[64.4,34.9],[68.3,46.3],[68.9,61.1],[72.8,72.6],[69.1,73.8],[73.9,82.3],[77.4,106.1]],
+  /* Greenland */
+  [[83.5,-27.1],[82.7,-20.8],[82.3,-22.7],[82.3,-26.5],[82.2,-31.9],[82.0,-31.4],[82.1,-27.9],[81.8,-24.8],[82.1,-22.9],[81.7,-22.1],[81.2,-23.2],[81.5,-20.6],[81.9,-15.8],[81.7,-12.8],[81.3,-12.2],[80.6,-16.3],[80.3,-16.9],[80.2,-20.0],[80.1,-17.7],[79.4,-18.9],[78.8,-19.7],[77.6,-19.7],[77.0,-18.5],[76.9,-20.0],[76.6,-21.7],[76.1,-19.8],[75.2,-19.6],[75.2,-20.7],[74.3,-19.4],[74.2,-21.6],[73.8,-20.4],[73.5,-20.8],[73.3,-22.2],[73.3,-23.6],[72.6,-22.3],[72.2,-22.3],[72.6,-24.3],[72.3,-24.8],[72.1,-23.4],[71.5,-22.1],[70.7,-21.8],[70.5,-23.5],[70.9,-24.3],[71.4,-25.5],[70.8,-25.2],[70.2,-26.4],[70.2,-23.7],[70.1,-22.3],[69.3,-25.0],[68.5,-27.7],[68.1,-30.7],[68.1,-31.8],[67.7,-32.8],[66.7,-34.2],[66.0,-36.4],[65.9,-37.0],[65.7,-38.4],[65.5,-39.8],[64.8,-40.7],[64.1,-40.7],[63.5,-41.2],[62.7,-42.8],[61.9,-42.4],[61.1,-42.9],[60.1,-43.4],[60.0,-44.8],[60.9,-46.3],[60.9,-48.3],[61.4,-49.2],[62.4,-49.9],[63.6,-51.6],[64.3,-52.1],[65.2,-52.3],[66.1,-53.7],[66.8,-53.3],[67.2,-54.0],[68.4,-53.0],[68.7,-51.5],[69.1,-51.1],[69.9,-50.9],[69.6,-52.0],[69.4,-52.6],[69.3,-53.5],[69.6,-54.7],[70.3,-54.8],[70.8,-54.4],[70.8,-53.4],[70.6,-51.4],[71.2,-53.1],[71.5,-54.0],[71.4,-55.0],[71.7,-55.8],[72.6,-54.7],[73.0,-55.3],[73.6,-56.1],[74.7,-57.3],[75.1,-58.6],[75.5,-58.6],[76.1,-61.3],[76.2,-63.4],[76.1,-66.1],[76.1,-68.5],[76.4,-69.7],[77.0,-71.4],[77.3,-68.8],[77.4,-66.8],[77.6,-71.0],[78.0,-73.3],[78.4,-73.2],[78.9,-69.4],[79.4,-65.7],[79.8,-65.3],[80.1,-68.0],[80.5,-67.2],[81.2,-63.7],[81.3,-62.2],[81.8,-62.7],[82.0,-60.3],[82.2,-57.2],[82.2,-54.1],[81.9,-53.0],[82.4,-50.4],[82.1,-48.0],[82.0,-46.6],[81.7,-44.5],[82.2,-46.9],[82.6,-46.8],[83.2,-43.4],[83.2,-39.9],[83.5,-38.6],[83.6,-35.1],[83.5,-27.1]],
+];
+
+/* ── globe canvas renderer ── */
+let _globeInitialized = false;
+let _globeUsers = [];
+let _globeAngle = 0;
+let _globeRAF   = null;
+
+const FAKE_USERS = [
+  { name: 'marlowe',  lat: 51.5,  lon: -0.1,  col: '184,150,90',
+    pronouns: 'they/them', city: 'London', country: 'UK',
+    bio: 'Reads Pessoa on the Tube. Makes films no one has seen yet. Believes in very long dinners.',
+    tags: ['film', 'literature', 'archival', 'tactile'],
+    era: 'slow cinema revival', influences: 'Tarkovsky, Sei Shōnagon, fog',
+    item: 'a notebook that is always too small',
+    posts: [
+      { date: 'Apr 28', text: 'Three hours in the BFI archive. Found a reel from 1962 that nobody has catalogued. The light in it is impossible.' },
+      { date: 'Apr 14', text: 'Rewatched Stalker on a wall-sized sheet in someone\'s garden. The sound of crickets made it better.' },
+      { date: 'Mar 31', text: 'Started a new notebook. Already too small. This is a pattern I refuse to address.' },
+      { date: 'Mar 12', text: 'The fog this morning was a film location. Nobody was filming.' },
+    ]},
+  { name: 'solvei',   lat: 59.9,  lon: 10.7,  col: '184,150,90',
+    pronouns: 'she/her', city: 'Oslo', country: 'Norway',
+    bio: 'Studies light in winter. Draws maps of places that do not exist. Collects old weather reports.',
+    tags: ['design', 'cartography', 'minimal', 'editorial'],
+    era: 'northern modernism', influences: 'Svalbard, Albers, silence',
+    item: 'a ruler with too many pencil marks',
+    posts: [
+      { date: 'May 2',  text: 'The sun set at 21:47. I drew it.' },
+      { date: 'Apr 20', text: 'Finished a map of a city that exists only in the winter. It will be printed in an edition of nine.' },
+      { date: 'Apr 3',  text: 'Found a weather report from February 1974. Oslo recorded the bluest sky in its history. I believe it.' },
+      { date: 'Mar 19', text: 'Albers said colour deceives. He was right and I am still not over it.' },
+    ]},
+  { name: 'fen',      lat: 31.2,  lon: 121.5, col: '184,150,90',
+    pronouns: 'he/him', city: 'Shanghai', country: 'China',
+    bio: 'Codes by day, composes by night. Interested in the space between silence and sound.',
+    tags: ['music', 'software', 'fluid', 'subversive'],
+    era: 'late digital romanticism', influences: 'Arca, Borges, rain on glass',
+    item: 'headphones that need new ear pads',
+    posts: [
+      { date: 'May 5',  text: 'Finished a piece at 3am that I will never release. That is the point.' },
+      { date: 'Apr 27', text: 'The city at 2am sounds like a server room that has begun to dream.' },
+      { date: 'Apr 11', text: 'Borges said time forks. I am trying to compose that fork.' },
+      { date: 'Mar 28', text: 'Rain on glass. A whole genre that has no name but should.' },
+    ]},
+];
+let _fakeUserScreenPos = [];
+let _globeUserScreenPos = [];
+
+function initGlobe(users) {
+  _globeUsers = users;
+  if (_globeInitialized) return;   /* don't restart loop on data updates */
+  _globeInitialized = true;
+  /* start globe facing the user's longitude: effLon = lon - rotY = 0 → rotY = lon */
+  if (window._fvMyLon != null) _globeAngle = window._fvMyLon;
+
+  const canvas = document.getElementById('globe-canvas');
+  if (!canvas) return;
+
+  const parent = canvas.parentElement;
+  const size   = Math.min(parent.offsetWidth * 0.92, 300);
+  canvas.width  = size * 2;   /* hi-dpi */
+  canvas.height = size * 2;
+  canvas.style.width  = size + 'px';
+  canvas.style.height = size + 'px';
+
+  const ctx = canvas.getContext('2d');
+  ctx.scale(2, 2);   /* hi-dpi */
+
+  const cx = size / 2, cy = size / 2;
+  const r  = size * 0.455;
+
+  /* ── orthographic projection ──
+     Convention: lon increases eastward, lat increases northward.
+     rotY: globe spin in degrees (positive = spin east, moves map leftward like dragging right)
+     tiltX: globe tilt in degrees (positive = tilt north pole toward viewer)
+  ── */
+  function project(lat, lon, rotY, tiltX) {
+    /* effective longitude after globe spin */
+    const effLon = (lon - rotY) * Math.PI / 180;
+    const latR   = lat          * Math.PI / 180;
+    const tiltR  = tiltX        * Math.PI / 180;
+
+    /* 3D point on unit sphere (standard geographic coords, z = toward viewer at lon=0,lat=0) */
+    const x0 = Math.cos(latR) * Math.sin(effLon);   /* east  */
+    const y0 = Math.sin(latR);                       /* north */
+    const z0 = Math.cos(latR) * Math.cos(effLon);   /* toward viewer */
+
+    /* tilt around screen-x axis (rotate north pole toward viewer) */
+    const y1 = y0 * Math.cos(tiltR) - z0 * Math.sin(tiltR);
+    const z1 = y0 * Math.sin(tiltR) + z0 * Math.cos(tiltR);
+
+    return {
+      x: cx + r * x0,
+      y: cy - r * y1,
+      z: z1,
+      visible: z1 >= -0.05
+    };
+  }
+
+  /* ── pulse animation for user dots ── */
+  let pulseT = 0;
+
+  function drawFrame(rot, tilt) {
+    ctx.clearRect(0, 0, size, size);
+    pulseT += 0.04;
+
+    /* ── clip to sphere ── */
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.clip();
+
+    /* ── grid lines ── */
+    /* latitude */
+    for (let lat = -60; lat <= 60; lat += 30) {
+      const isEquator = lat === 0;
+      for (let lon = -180; lon < 180; lon += 2) {
+        const p1 = project(lat, lon,     rot, tilt);
+        const p2 = project(lat, lon + 2, rot, tilt);
+        const avgZ  = (p1.z + p2.z) / 2;
+        const front = avgZ >= 0;
+        const alpha = front
+          ? (isEquator ? 0.55 : 0.28) * (0.6 + 0.4 * avgZ)
+          : (isEquator ? 0.14 : 0.07) * Math.max(0.2, 1 + avgZ * 2);
+        const lw = front
+          ? (isEquator ? 1.4 : 0.7)
+          : (isEquator ? 0.6 : 0.35);
+        ctx.strokeStyle = `rgba(106,173,174,${alpha.toFixed(2)})`;
+        ctx.lineWidth   = lw;
+        ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
+      }
+    }
+    /* longitude */
+    for (let lon = 0; lon < 360; lon += 30) {
+      const isPrime = lon === 0 || lon === 180;
+      for (let lat = -84; lat < 84; lat += 2) {
+        const p1 = project(lat,     lon, rot, tilt);
+        const p2 = project(lat + 2, lon, rot, tilt);
+        const avgZ  = (p1.z + p2.z) / 2;
+        const front = avgZ >= 0;
+        const alpha = front
+          ? (isPrime ? 0.55 : 0.28) * (0.6 + 0.4 * avgZ)
+          : (isPrime ? 0.14 : 0.07) * Math.max(0.2, 1 + avgZ * 2);
+        const lw = front
+          ? (isPrime ? 1.4 : 0.7)
+          : (isPrime ? 0.6 : 0.35);
+        ctx.strokeStyle = `rgba(106,173,174,${alpha.toFixed(2)})`;
+        ctx.lineWidth   = lw;
+        ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
+      }
+    }
+
+    /* ── continent outlines — variable weight sketch ── */
+    for (const poly of CONTINENTS) {
+      for (let i = 0; i < poly.length - 1; i++) {
+        const p1   = project(poly[i][0],   poly[i][1],   rot, tilt);
+        const p2   = project(poly[i+1][0], poly[i+1][1], rot, tilt);
+        const avgZ = (p1.z + p2.z) / 2;
+        const front = avgZ >= 0;
+        /* front: bold + opaque; back: thin + ghost */
+        const alpha = front
+          ? Math.min(1, 0.75 + avgZ * 0.4)
+          : Math.max(0.03, 0.10 * (1 + avgZ * 2));
+        const lw = front
+          ? 1.6 + avgZ * 1.2    /* 1.6 at edge, up to 2.8 at centre-front */
+          : 0.4;
+        ctx.strokeStyle = `rgba(106,173,174,${alpha.toFixed(2)})`;
+        ctx.lineWidth   = lw;
+        ctx.lineJoin    = 'round';
+        ctx.lineCap     = 'round';
+        ctx.beginPath();
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
+        ctx.stroke();
+      }
+    }
+
+    /* ── fake demo users ── */
+    _fakeUserScreenPos = [];
+    FAKE_USERS.forEach(u => {
+      const p = project(u.lat, u.lon, rot, tilt);
+      if (!p.visible) return;
+      _fakeUserScreenPos.push({ u, sx: p.x, sy: p.y });
+      const fr = 3.5;
+      const gc = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, fr * 3.5);
+      gc.addColorStop(0, `rgba(${u.col},0.35)`);
+      gc.addColorStop(1, `rgba(${u.col},0)`);
+      ctx.beginPath(); ctx.arc(p.x, p.y, fr * 3.5, 0, Math.PI*2);
+      ctx.fillStyle = gc; ctx.fill();
+      ctx.beginPath(); ctx.arc(p.x, p.y, fr, 0, Math.PI*2);
+      ctx.fillStyle = `rgb(${u.col})`; ctx.fill();
+      ctx.font = 'bold 9px "Courier Prime", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = `rgb(${u.col})`;
+      ctx.fillText(u.name, p.x, p.y - fr - 5);
+    });
+
+    /* ── user dots ── */
+    _globeUserScreenPos = [];
+    const dots = _globeUsers
+      .filter(u => u.lat != null && u.lon != null)
+      .map(u => ({ u, p: project(u.lat, u.lon, rot, tilt), isMe: u.uid === window._fvMyUid }))
+      .filter(d => d.p.visible || d.isMe)
+      .sort((a, b) => a.p.z - b.p.z);
+    dots.forEach(({ u, p, isMe }) => {
+      if (!isMe && p.visible) _globeUserScreenPos.push({ u, sx: p.x, sy: p.y });
+    });
+
+    dots.forEach(({ u, p, isMe }) => {
+      const backFade = p.visible ? 1 : 0.25;
+      const baseR = isMe ? 5 : 3.5;
+      const myRed  = '139,45,74';   /* vintage rose-red, from tag chip */
+      const col    = isMe ? `rgba(${myRed},${backFade})` : `rgba(184,150,90,${backFade})`;
+      const glowC  = isMe ? `rgba(${myRed},` : 'rgba(184,150,90,';
+      const haloR  = baseR * 3.5;
+      const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, haloR);
+      g.addColorStop(0, glowC + (0.35 * backFade).toFixed(2) + ')');
+      g.addColorStop(1, glowC + '0)');
+      ctx.beginPath(); ctx.arc(p.x, p.y, haloR, 0, Math.PI*2);
+      ctx.fillStyle = g; ctx.fill();
+      ctx.beginPath(); ctx.arc(p.x, p.y, baseR, 0, Math.PI*2);
+      ctx.fillStyle = col; ctx.fill();
+      if (isMe) {
+        const pulse = baseR + 2 + Math.sin(pulseT) * 3;
+        ctx.beginPath(); ctx.arc(p.x, p.y, pulse, 0, Math.PI*2);
+        ctx.strokeStyle = `rgba(${myRed},${((0.45 - Math.abs(Math.sin(pulseT))*0.3)*backFade).toFixed(2)})`;
+        ctx.lineWidth = 1.2; ctx.stroke();
+        /* nickname — no background, vintage red text */
+        const nick = (window._fvProfile && window._fvProfile.nickname) || u.nickname || 'You';
+        ctx.font = 'bold 9px "Courier Prime", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = `rgba(${myRed},${backFade * 0.9})`;
+        ctx.fillText(nick, p.x, p.y - baseR - 5);
+      }
+    });
+
+    ctx.restore();
+
+    /* outer ring */
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2);
+    ctx.strokeStyle = 'rgba(106,173,174,0.6)';
+    ctx.lineWidth   = 1.8;
+    ctx.stroke();
+  }
+
+  /* ── drag to rotate (X = lon spin, Y = lat tilt) ── */
+  let isDragging = false;
+  let dragStartX = 0, dragStartY = 0;
+  let dragStartAngle = 0, dragStartTilt = 0;
+  let dragVelX = 0, dragVelY = 0;
+  let lastDragX = 0, lastDragY = 0;
+  let _globeTilt = 0;   /* vertical tilt in degrees, clamped ±80 */
+  let autoSpin = true;
+
+  function getClientXY(e) {
+    return e.touches
+      ? { x: e.touches[0].clientX, y: e.touches[0].clientY }
+      : { x: e.clientX, y: e.clientY };
+  }
+
+  canvas.addEventListener('pointerdown', e => {
+    isDragging     = true;
+    autoSpin       = false;
+    const p        = getClientXY(e);
+    dragStartX     = p.x; dragStartY     = p.y;
+    dragStartAngle = _globeAngle;
+    dragStartTilt  = _globeTilt;
+    dragVelX       = 0;   dragVelY       = 0;
+    lastDragX      = p.x; lastDragY      = p.y;
+    canvas.setPointerCapture(e.pointerId);
+  });
+  canvas.addEventListener('pointermove', e => {
+    if (!isDragging) return;
+    const p  = getClientXY(e);
+    dragVelX = p.x - lastDragX;
+    dragVelY = p.y - lastDragY;
+    lastDragX = p.x; lastDragY = p.y;
+    _globeAngle = dragStartAngle + (p.x - dragStartX) * 0.4;
+    _globeTilt  = Math.max(-80, Math.min(80,
+      dragStartTilt  + (p.y - dragStartY) * 0.4));
+  });
+  canvas.addEventListener('pointerup', e => {
+    const up = getClientXY(e);
+    const totalMove = Math.hypot(up.x - dragStartX, up.y - dragStartY);
+    const wasDrag = totalMove > 8;
+    isDragging = false;
+    let vx = dragVelX * 0.4, vy = dragVelY * 0.4;
+    function flick() {
+      if (Math.abs(vx) < 0.05 && Math.abs(vy) < 0.05) { autoSpin = true; return; }
+      _globeAngle += vx;
+      _globeTilt   = Math.max(-80, Math.min(80, _globeTilt + vy));
+      vx *= 0.92; vy *= 0.92;
+      requestAnimationFrame(flick);
+    }
+    flick();
+
+    /* tap detection — check if a fake user dot was tapped */
+    if (!wasDrag) {
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = size / rect.width;
+      const scaleY = size / rect.height;
+      const tx = (up.x - rect.left) * scaleX;
+      const ty = (up.y - rect.top)  * scaleY;
+      const HIT = 18;
+      for (const { u, sx, sy } of _fakeUserScreenPos) {
+        if (Math.hypot(tx - sx, ty - sy) < HIT) {
+          openGlobeUser(u);
+          return;
+        }
+      }
+      /* also check real Firebase users */
+      for (const entry of _globeUserScreenPos) {
+        if (Math.hypot(tx - entry.sx, ty - entry.sy) < HIT) {
+          openGlobeUser(entry.u);
+          return;
+        }
+      }
+    }
+  });
+  canvas.addEventListener('pointercancel', () => { isDragging = false; autoSpin = true; });
+
+  function loop() {
+    if (autoSpin && !isDragging) _globeAngle += 0.12;
+    drawFrame(_globeAngle, _globeTilt);
+    _globeRAF = requestAnimationFrame(loop);
+  }
+  if (_globeRAF) cancelAnimationFrame(_globeRAF);
+  loop();
+}
+
+/* ── open persona sheet from globe tap ── */
+function openGlobeUser(u) {
+  window.openPersona({
+    label:     u.name || u.nickname || 'Unknown',
+    name:      u.name || u.nickname || 'Unknown',
+    pronouns:  u.pronouns || u.pronoun || '',
+    city:      u.city    || '',
+    country:   u.country || '',
+    bio:       u.bio     || '',
+    body:      u.bio     || '',
+    tags:      u.tags    || [],
+    era:       u.era     || '',
+    influences:u.influences || '',
+    item:      u.item    || '',
+    img:       u.img     || '',
+    foot:      (u.tags||[]).join(' · '),
+    posts:     u.posts   || [],
+  });
+}
+
+/* ── render user list ── */
+let currentTab = 'near';
+let allUsers   = [];
+
+function renderList(tab) {
+  const el   = document.getElementById('globe-list');
+  const myLat = window._fvMyLat || 0;
+  const myLon = window._fvMyLon || 0;
+  const myTags = window._fvMyTags || [];
+  if (!el) return;
+
+  const others = allUsers.filter(u => u.uid !== window._fvMyUid);
+
+  let sorted;
+  if (tab === 'near') {
+    sorted = [...others].sort((a, b) =>
+      haversine(myLat, myLon, a.lat||0, a.lon||0) -
+      haversine(myLat, myLon, b.lat||0, b.lon||0)
+    );
+  } else {
+    sorted = [...others].sort((a, b) =>
+      matchScore(myTags, b.tags||[]) - matchScore(myTags, a.tags||[])
+    );
+  }
+
+  if (!sorted.length) {
+    el.innerHTML = '<div class="globe-empty">Waiting for others to join…</div>';
+    return;
+  }
+
+  el.innerHTML = '';
+  sorted.slice(0, 20).forEach(u => {
+    const dist = haversine(myLat, myLon, u.lat||0, u.lon||0);
+    const score = matchScore(myTags, u.tags||[]);
+    const distStr = dist < 1 ? 'nearby' : dist < 1000 ? Math.round(dist) + ' km' : (Math.round(dist/100)/10) + 'k km';
+    const card = document.createElement('div');
+    card.className = 'globe-user-card';
+    card.innerHTML = `
+      <div class="globe-user-avatar">✦</div>
+      <div class="globe-user-info">
+        <div class="globe-user-name">${u.nickname || 'Visitor'}</div>
+        <div class="globe-user-meta">${u.city || ''}${u.country ? ' · ' + u.country : ''}</div>
+      </div>
+      ${tab === 'near'
+        ? `<div class="globe-user-dist">${dist < 1 ? 'nearby' : dist < 1000 ? Math.round(dist)+' km' : (Math.round(dist/100)/10)+'k km'}</div>`
+        : `<div class="globe-user-match">${score} match${score !== 1 ? 'es' : ''}</div>`
+      }`;
+    card.style.cursor = 'pointer';
+    card.addEventListener('click', () => openGlobeUser(u));
+    el.appendChild(card);
+  });
+}
+
+/* ── tab buttons ── */
+document.querySelectorAll('.globe-tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.globe-tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentTab = btn.dataset.tab;
+    document.getElementById('globe-list-title').textContent =
+      currentTab === 'near' ? 'Near You' : 'Best Matches';
+    renderList(currentTab);
+  });
+});
+
+/* ── boot ── */
+(async () => {
+  await registerPresence();
+
+  listenUsers(users => {
+    allUsers = users;
+    const countEl = document.getElementById('globe-count');
+    if (countEl) countEl.textContent = users.length;
+    initGlobe(users);          /* starts loop once; subsequent calls only update _globeUsers */
+    renderList(currentTab);
+  });
+})();
+</script>
+<style>
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+:root {
+  --teal: #6aadae;
+  --teal-dark: #4a8b8c;
+  --teal-light: #9dcccf;
+  --paper: #f4f1ec;
+  --ink: #2a2a2a;
+  --ink-faint: rgba(106,173,174,0.35);
+  --nav-h: 72px;
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+html, body {
+  width: 100%; height: 100%;
+  overflow: hidden;
+  background: var(--paper);
+  font-family: 'Viaoda Libre', serif;
+}
+
+#phone-shell {
+  position: fixed;
+  inset: 0;
+  background: var(--paper);
+  overflow: hidden;
+}
+
+/* ══════════════════════════════
+   PAGE SYSTEM — always relative to #phone-shell
+══════════════════════════════ */
+.page {
+  position: absolute; inset: 0;
+  background: var(--paper);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  transition: opacity 0.55s ease, transform 0.55s ease;
+  will-change: opacity, transform;
+  overflow: hidden;
+  /* constrain content width on large screens */
+  --content-w: min(100%, 600px);
+}
+.page.hidden {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(18px);
+}
+.page.slide-up {
+  transform: translateY(100%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ══════════════════════════════
+   BOTTOM NAV BAR — iPhone pill style
+══════════════════════════════ */
+#nav-bar {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: auto;
+  height: 64px;
+  background: rgba(244,241,236,0.88);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(106,173,174,0.18);
+  border-radius: 32px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.10), 0 2px 8px rgba(0,0,0,0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 10px;
+  z-index: 200;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.5s ease;
+}
+#nav-bar.visible { opacity: 1; pointer-events: all; }
+
+.nav-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  width: 56px;
+  height: 48px;
+  border-radius: 24px;
+  font-family: 'Viaoda Libre', serif;
+  font-size: 8px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  transition: color 0.2s, background 0.2s;
+}
+.nav-btn:active { background: rgba(106,173,174,0.1); }
+.nav-btn.active {
+  color: var(--teal-dark);
+  background: rgba(106,173,174,0.12);
+}
+.nav-btn svg { width: 20px; height: 20px; stroke-width: 1.3; }
+
+/* ══════════════════════════════
+   SCREEN 1 — LOADER
+══════════════════════════════ */
+#page-loader {
+  background: var(--paper);
+  z-index: 150;
+}
+
+.loader-ring-wrap {
+  width: 220px; height: 220px;
+  position: relative;
+}
+
+#loader-canvas {
+  width: 100%; height: 100%;
+}
+
+.loader-counter {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Fredericka the Great', serif;
+  font-size: 52px;
+  color: var(--teal-dark);
+  line-height: 1;
+  opacity: 0.85;
+}
+
+/* ══════════════════════════════
+   ONBOARDING — shared
+══════════════════════════════ */
+#page-onboarding {
+  justify-content: flex-start;
+  z-index: 145;
+}
+
+.ob-wrap {
+  width: min(100%, 520px);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 56px 28px 40px;
+  gap: 0;
+}
+
+/* progress bar */
+.ob-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 36px;
+}
+.ob-progress-bar {
+  flex: 1;
+  height: 3px;
+  background: rgba(106,173,174,0.18);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.ob-progress-fill {
+  height: 100%;
+  background: var(--teal);
+  border-radius: 2px;
+  transition: width 0.45s cubic-bezier(0.4,0,0.2,1);
+}
+.ob-step-label {
+  font-size: 9px;
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+  color: var(--teal-dark);
+  opacity: 0.6;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* step header */
+.ob-step {
+  display: none;
+  flex-direction: column;
+  flex: 1;
+}
+.ob-step.active { display: flex; }
+
+.ob-eyebrow {
+  font-size: 9px;
+  letter-spacing: 0.42em;
+  text-transform: uppercase;
+  color: var(--teal);
+  margin-bottom: 10px;
+}
+.ob-title {
+  font-family: 'Viaoda Libre', serif;
+  font-size: 28px;
+  color: var(--ink);
+  line-height: 1.25;
+  margin-bottom: 6px;
+}
+.ob-sub {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--ink-faint);
+  font-style: italic;
+  margin-bottom: 28px;
+  line-height: 1.6;
+}
+
+/* text input */
+.ob-input {
+  width: 100%;
+  background: rgba(255,255,255,0.65);
+  border: 1px solid rgba(106,173,174,0.28);
+  border-radius: 16px;
+  padding: 16px 18px;
+  font-family: 'Viaoda Libre', serif;
+  font-size: 22px;
+  color: var(--ink);
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+  transition: border-color 0.25s, box-shadow 0.25s;
+}
+.ob-input:focus {
+  border-color: var(--teal);
+  box-shadow: 0 0 0 3px rgba(106,173,174,0.12);
+}
+.ob-input::placeholder { color: var(--ink-faint); font-style: italic; font-size: 17px; }
+
+/* pronoun chips */
+.ob-pronoun-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin-bottom: 8px;
+}
+.ob-pronoun {
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--teal-dark);
+  border: 1px solid rgba(106,173,174,0.38);
+  background: rgba(255,255,255,0.55);
+  border-radius: 50px;
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: background 0.18s, color 0.18s, border-color 0.18s, transform 0.12s;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.ob-pronoun:active { transform: scale(0.95); }
+.ob-pronoun.selected {
+  background: var(--teal);
+  color: #fff;
+  border-color: var(--teal);
+}
+
+/* birthday */
+.ob-bday-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.ob-bday-part {
+  flex: 1;
+  background: rgba(255,255,255,0.65);
+  border: 1px solid rgba(106,173,174,0.28);
+  border-radius: 14px;
+  padding: 14px 10px;
+  font-family: 'Viaoda Libre', serif;
+  font-size: 20px;
+  color: var(--ink);
+  text-align: center;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+  transition: border-color 0.2s;
+}
+.ob-bday-part:focus { border-color: var(--teal); }
+.ob-bday-sep {
+  font-size: 22px;
+  color: var(--ink-faint);
+  flex-shrink: 0;
+}
+
+/* tag chips for step 4 */
+.ob-tags-section {
+  margin-bottom: 18px;
+}
+.ob-tags-label {
+  font-size: 8px;
+  letter-spacing: 0.42em;
+  text-transform: uppercase;
+  color: var(--teal-dark);
+  opacity: 0.7;
+  margin-bottom: 9px;
+}
+.ob-tags-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.ob-tag {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink);
+  border: 1px solid rgba(106,173,174,0.18);
+  background: rgba(255,255,255,0.55);
+  border-radius: 50px;
+  padding: 6px 13px;
+  cursor: pointer;
+  transition: background 0.18s, color 0.18s, border-color 0.18s;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.ob-tag.selected {
+  background: var(--ink);
+  color: var(--paper);
+  border-color: var(--ink);
+}
+.ob-tag.teal.selected  { background: var(--teal);  border-color: var(--teal);  color: #fff; }
+.ob-tag.plum.selected  { background: #8b4a5a; border-color: #8b4a5a; color: #fff; }
+.ob-tag.sand.selected  { background: #b5975a; border-color: #b5975a; color: #fff; }
+
+/* next / finish button */
+.ob-next {
+  margin-top: auto;
+  width: 100%;
+  padding: 16px;
+  background: var(--teal);
+  color: #fff;
+  border: none;
+  border-radius: 50px;
+  font-family: 'Viaoda Libre', serif;
+  font-size: 14px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.15s;
+  margin-top: 28px;
+}
+.ob-next:active { opacity: 0.78; transform: scale(0.98); }
+.ob-next:disabled { opacity: 0.35; pointer-events: none; }
+
+/* ══════════════════════════════
+   SCREEN 2 — QUESTIONNAIRE
+══════════════════════════════ */
+#page-questions {
+  justify-content: flex-start;
+  padding: 0;
+  z-index: 140;
+}
+
+.q-scroll-inner {
+  width: min(100%, 600px);
+  height: 100%;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 64px 20px 48px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.q-header {
+  font-size: 10px;
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+  color: var(--teal-dark);
+  margin-bottom: 8px;
+  opacity: 0.7;
+}
+
+.question-block {
+  width: 100%;
+  background: rgba(255,255,255,0.55);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 20px;
+  border: 1px solid rgba(255,255,255,0.7);
+  padding: 20px 18px 16px;
+  box-shadow: 0 2px 16px rgba(0,0,0,0.04);
+}
+
+.question-number {
+  font-size: 9px;
+  letter-spacing: 0.4em;
+  color: var(--teal);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+}
+
+.question-label {
+  font-size: 18px;
+  color: var(--ink);
+  margin-bottom: 14px;
+  line-height: 1.4;
+}
+
+.question-placeholder {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: var(--ink-faint);
+  margin-bottom: 10px;
+  font-style: italic;
+}
+
+.q-input {
+  width: 100%;
+  background: rgba(106,173,174,0.07);
+  border: none;
+  border-radius: 12px;
+  outline: none;
+  font-family: 'Viaoda Libre', serif;
+  font-size: 15px;
+  color: var(--ink);
+  padding: 10px 14px;
+  transition: background 0.3s;
+  resize: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.q-input:focus { background: rgba(106,173,174,0.13); }
+.q-input::placeholder { color: var(--ink-faint); font-style: italic; }
+textarea.q-input { min-height: 60px; line-height: 1.6; }
+
+.q-submit-wrap {
+  display: flex; justify-content: flex-end;
+  width: 100%;
+  padding-bottom: 40px;
+}
+
+.q-submit {
+  background: var(--teal);
+  border: none;
+  color: var(--paper);
+  font-family: 'Viaoda Libre', serif;
+  font-size: 13px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  padding: 14px 36px;
+  cursor: pointer;
+  transition: opacity 0.2s;
+  -webkit-appearance: none;
+  appearance: none;
+  border-radius: 50px;
+}
+.q-submit:active { opacity: 0.75; }
+
+/* ══════════════════════════════
+   SCREEN 3 — HOME
+══════════════════════════════ */
+#page-home {
+  padding-bottom: var(--nav-h);
+}
+
+#page-home::before {
+  content: '';
+  position: absolute; inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='400'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='400' height='400' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
+  pointer-events: none; opacity: 0.5; z-index: 0;
+}
+
+.home-title-wrap {
+  position: absolute;
+  top: 46%; left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  z-index: 1;
+  pointer-events: none;
+  width: min(96vw, 560px);
+}
+
+.home-title {
+  font-family: 'Workbench', monospace;
+  font-variation-settings: 'SCAN' 0, 'BLED' 25;
+  font-size: clamp(24px, 14vw, 80px);
+  line-height: 1;
+  color: #6b6b6b;
+  white-space: nowrap;
+  width: 100%;
+  display: block;
+}
+
+.home-subtitle {
+  font-family: 'Handjet', monospace;
+  font-size: clamp(13px, 3.8vw, 18px);
+  letter-spacing: 0.18em;
+  color: var(--ink);
+  opacity: 0.45;
+  text-transform: uppercase;
+  position: absolute;
+  bottom: calc(var(--nav-h) + 20px);
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  z-index: 10;
+}
+
+.home-ring-wrap {
+  position: absolute;
+  width: min(88vw, 480px, 58vh);
+  height: min(88vw, 480px, 58vh);
+  top: 46%; left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 2;
+  pointer-events: none;
+}
+
+.home-ring-svg { width: 100%; height: 100%; }
+
+.home-ring-svg text {
+  fill: var(--ink);
+  font-family: 'Fredericka the Great', serif;
+  font-size: 16px;
+  letter-spacing: 2px;
+}
+.home-ring-svg text.ring-inner {
+  fill: var(--teal);
+  font-size: 18px;
+  letter-spacing: 3px;
+}
+
+/* ══════════════════════════════
+   SCREEN 4 — CARDS
+══════════════════════════════ */
+#page-cards {
+  padding-bottom: var(--nav-h);
+  justify-content: flex-start;
+  overflow: hidden;
+  flex-direction: column;
+  gap: 0;
+}
+
+#page-cards::before {
+  content: '';
+  position: absolute; inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='400'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='400' height='400' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
+  pointer-events: none; opacity: 0.5; z-index: 0;
+}
+
+/* ── cylinder carousel stage ── */
+.fan-stage {
+  position: relative;
+  width: 100%;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  perspective: 900px;
+  perspective-origin: 50% 50%;
+  z-index: 2;
+  padding-top: 28px;
+  overflow: visible;
+  isolation: isolate;
+}
+
+/* track IS the cylinder — JS rotates this whole element */
+.fan-track {
+  position: relative;
+  transform-style: preserve-3d;
+  /* width/height = front card size, set by JS */
+}
+
+/* each card positioned by JS — full-photo portrait style */
+.card {
+  position: absolute;
+  top: 0; left: 0;
+  border-radius: 22px;
+  overflow: hidden;
+  background: #1a1a1a;
+  /* thick card: layered shadows simulate depth */
+  box-shadow:
+    0 1px 0   rgba(255,255,255,0.08) inset,   /* top-edge highlight */
+    2px 0 0   rgba(255,255,255,0.06) inset,   /* left-edge highlight */
+    0 2px 4px rgba(0,0,0,0.35),
+    0 6px 16px rgba(0,0,0,0.28),
+    0 18px 40px rgba(0,0,0,0.22),
+    0 32px 64px rgba(0,0,0,0.14),
+    6px 24px 48px rgba(0,0,0,0.10);           /* side cast shadow */
+  cursor: pointer;
+  display: block;
+  will-change: transform, opacity;
+}
+.card.is-front {
+  box-shadow:
+    0 1px 0   rgba(255,255,255,0.12) inset,
+    2px 0 0   rgba(255,255,255,0.08) inset,
+    0 2px 6px rgba(0,0,0,0.40),
+    0 8px 24px rgba(0,0,0,0.32),
+    0 24px 56px rgba(0,0,0,0.28),
+    0 40px 80px rgba(0,0,0,0.18),
+    8px 32px 56px rgba(0,0,0,0.14);
+}
+
+/* fake physical edge — right-side thickness strip */
+.card-thick-left {
+  position: absolute;
+  top: 4px; bottom: 4px; left: 0;
+  width: 3px;
+  border-radius: 3px 0 0 3px;
+  background: linear-gradient(
+    to bottom,
+    rgba(255,255,255,0.18) 0%,
+    rgba(255,255,255,0.08) 40%,
+    rgba(255,255,255,0.02) 100%
+  );
+  pointer-events: none;
+  z-index: 5;
+}
+
+/* full-bleed photo */
+.card-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%; height: 100%;
+  object-fit: cover;
+  object-position: top center;
+  display: block;
+}
+
+/* gradient overlay — bottom heavy */
+.card-gradient {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to bottom,
+    rgba(0,0,0,0)    30%,
+    rgba(0,0,0,0.25) 52%,
+    rgba(0,0,0,0.72) 75%,
+    rgba(0,0,0,0.88) 100%
+  );
+}
+
+/* all text content sits at the bottom */
+.card-content {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  padding: 14px 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* location line */
+.card-location {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.75);
+}
+.card-location svg { width: 9px; height: 9px; fill: rgba(255,255,255,0.75); flex-shrink: 0; }
+
+/* name row */
+.card-name-row {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+.card-name {
+  font-family: 'Viaoda Libre', serif;
+  font-size: 24px;
+  color: #fff;
+  line-height: 1;
+  font-weight: 400;
+}
+.card-title-badge {
+  font-family: 'Workbench', monospace;
+  font-variation-settings: 'SCAN' 0, 'BLED' 20;
+  font-size: 18px;
+  color: rgba(255,255,255,0.45);
+  line-height: 1;
+}
+
+/* keyword tags */
+.card-tags {
+  display: flex;
+  gap: 5px;
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+.card-tag {
+  font-size: 8px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.9);
+  background: rgba(255,255,255,0.15);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border: 1px solid rgba(255,255,255,0.22);
+  border-radius: 20px;
+  padding: 3px 9px;
+  white-space: nowrap;
+}
+
+/* bio */
+.card-bio-label {
+  font-size: 7px;
+  letter-spacing: 0.38em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.55);
+  margin-top: 2px;
+}
+.card-bio {
+  font-family: 'Viaoda Libre', serif;
+  font-size: 9.5px;
+  line-height: 1.65;
+  color: rgba(255,255,255,0.78);
+  font-style: italic;
+  /* clamp to 2 lines */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* action buttons */
+.card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+.card-btn {
+  flex: 1;
+  height: 36px;
+  border: none;
+  border-radius: 50px;
+  font-family: 'Viaoda Libre', serif;
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.2s, transform 0.15s;
+}
+.card-btn:active { opacity: 0.75; transform: scale(0.95); }
+.card-btn-pass {
+  background: rgba(255,255,255,0.92);
+  color: #555;
+}
+.card-btn-like {
+  background: #6aadae;
+  color: #fff;
+  flex: 1.5;
+}
+
+/* unused old classes — kept empty so no layout breaks */
+.card-num, .card-label, .card-title, .card-body, .card-foot, .card-scribble { display: none; }
+
+/* ── word ring below cards ── */
+.ring-stage {
+  position: relative;
+  width: 100%;
+  height: 120px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  overflow: visible;
+  margin-top: -95px;
+}
+
+#ring-canvas {
+  display: block;
+}
+
+/* dots hidden */
+.card-dots { display: none; }
+
+/* ══════════════════════════════
+   SCREEN 5 — PROFILE
+══════════════════════════════ */
+#page-profile {
+  justify-content: flex-start;
+  padding-bottom: var(--nav-h);
+  overflow: hidden;
+}
+
+.profile-scroll {
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* ── hero banner ── */
+.profile-hero {
+  position: relative;
+  width: 100%;
+  height: 200px;
+  background: linear-gradient(160deg, #c2bdb0 0%, #8fa8a8 100%);
+  flex-shrink: 0;
+}
+.profile-hero-cover {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+}
+.profile-hero::after {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(to bottom, rgba(0,0,0,0.08) 0%, rgba(0,0,0,0.38) 100%);
+}
+.profile-hero-edit-btn {
+  position: absolute; top: 14px; right: 14px; z-index: 2;
+  width: 32px; height: 32px; border-radius: 50%;
+  background: rgba(0,0,0,0.28); backdrop-filter: blur(8px);
+  border: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  color: #fff;
+}
+.profile-hero-edit-btn svg { width: 14px; height: 14px; stroke: #fff; stroke-width: 2; fill: none; }
+
+/* ── identity strip (avatar + name row) ── */
+.profile-identity {
+  position: relative;
+  padding: 0 20px 0;
+  margin-top: -28px;
+  z-index: 2;
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+}
+.profile-avatar-wrap {
+  position: relative;
+  flex-shrink: 0;
+  width: 72px; height: 72px;
+}
+.profile-avatar {
+  width: 72px; height: 72px;
+  border-radius: 50%;
+  border: 3px solid var(--paper);
+  background: linear-gradient(135deg, var(--teal-light), var(--teal));
+  display: flex; align-items: center; justify-content: center;
+  font-size: 28px; color: #fff;
+  cursor: pointer; overflow: hidden;
+  box-shadow: 0 3px 14px rgba(0,0,0,0.15);
+}
+.profile-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+.profile-avatar-edit {
+  position: absolute; bottom: 0; right: 0;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: var(--teal); border: 2px solid var(--paper);
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.profile-avatar-edit svg { width: 9px; height: 9px; stroke: var(--paper); stroke-width: 2; }
+
+.profile-name-col {
+  flex: 1; padding-bottom: 6px;
+}
+.profile-name-input {
+  font-family: 'Viaoda Libre', serif;
+  font-size: 22px; color: var(--ink);
+  background: none; border: none; border-bottom: 1px solid transparent;
+  outline: none; width: 100%; transition: border-color 0.3s;
+  -webkit-appearance: none; appearance: none;
+}
+.profile-name-input:focus { border-bottom-color: var(--teal-light); }
+.profile-name-input::placeholder { color: var(--ink-faint); }
+.profile-handle {
+  font-family: 'Courier Prime', monospace;
+  font-size: 10px; letter-spacing: 0.22em;
+  color: var(--teal); opacity: 0.7;
+  text-transform: lowercase; margin-top: 1px;
+}
+
+/* ── status pill ── */
+.profile-status-row {
+  padding: 10px 20px 0;
+  display: flex; align-items: center; gap: 6px;
+}
+.profile-status-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: #6abf8a; flex-shrink: 0;
+  box-shadow: 0 0 0 2px rgba(106,191,138,0.25);
+}
+.profile-status-text {
+  font-family: 'Courier Prime', monospace;
+  font-size: 10px; letter-spacing: 0.12em; color: var(--ink); opacity: 0.55;
+}
+
+/* ── stat row ── */
+.profile-stats {
+  display: flex; gap: 0;
+  margin: 14px 16px 0;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid rgba(0,0,0,0.07);
+}
+.profile-stat {
+  flex: 1;
+  padding: 14px 10px;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  background: rgba(255,255,255,0.6);
+  border-right: 1px solid rgba(0,0,0,0.07);
+  cursor: default;
+}
+.profile-stat:last-child { border-right: none; }
+.profile-stat-val {
+  font-family: 'Viaoda Libre', serif;
+  font-size: 22px; color: var(--ink); line-height: 1;
+}
+.profile-stat-label {
+  font-family: 'Courier Prime', monospace;
+  font-size: 8px; letter-spacing: 0.28em; text-transform: uppercase;
+  color: var(--ink); opacity: 0.4;
+}
+
+/* ── manifesto card ── */
+.profile-manifesto-card {
+  margin: 12px 16px 0;
+  background: var(--teal);
+  border-radius: 18px;
+  padding: 18px 20px;
+  position: relative; overflow: hidden;
+}
+.profile-manifesto-card::before {
+  content: '✦';
+  position: absolute; right: 18px; top: 14px;
+  font-size: 32px; color: rgba(255,255,255,0.12);
+}
+.profile-manifesto-label {
+  font-family: 'Courier Prime', monospace;
+  font-size: 8px; letter-spacing: 0.38em; text-transform: uppercase;
+  color: rgba(255,255,255,0.6); margin-bottom: 8px;
+}
+.profile-textarea {
+  width: 100%;
+  background: none; border: none; outline: none;
+  font-family: 'Viaoda Libre', serif; font-style: italic;
+  font-size: 14px; color: #fff; line-height: 1.8;
+  resize: none; -webkit-appearance: none; appearance: none;
+  caret-color: rgba(255,255,255,0.7);
+}
+.profile-textarea::placeholder { color: rgba(255,255,255,0.4); font-style: italic; }
+
+/* ── question answers card ── */
+.profile-qa-card {
+  margin: 10px 16px 0;
+  background: rgba(255,255,255,0.62);
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255,255,255,0.75);
+  border-radius: 18px; overflow: hidden;
+}
+.profile-qa-row {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 14px 18px;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+  cursor: default;
+}
+.profile-qa-row:last-child { border-bottom: none; }
+.profile-qa-num {
+  font-family: 'Courier Prime', monospace;
+  font-size: 9px; letter-spacing: 0.14em; color: var(--teal);
+  opacity: 0.7; flex-shrink: 0; padding-top: 2px;
+}
+.profile-qa-body { flex: 1; }
+.profile-qa-q {
+  font-family: 'Courier Prime', monospace;
+  font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--ink); opacity: 0.38; margin-bottom: 3px;
+}
+.profile-qa-a {
+  font-family: 'Viaoda Libre', serif; font-style: italic;
+  font-size: 13px; color: var(--ink); line-height: 1.6;
+}
+.profile-qa-edit {
+  font-size: 14px; color: var(--ink); opacity: 0.2;
+  flex-shrink: 0; padding-top: 1px;
+}
+
+/* ── two-col info cards ── */
+.profile-two-col {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 10px; margin: 10px 16px 0;
+}
+.profile-info-card {
+  background: rgba(255,255,255,0.62);
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255,255,255,0.75);
+  border-radius: 18px; padding: 16px 14px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.profile-info-card-label {
+  font-family: 'Courier Prime', monospace;
+  font-size: 8px; letter-spacing: 0.32em; text-transform: uppercase;
+  color: var(--teal-dark); opacity: 0.55;
+}
+.profile-input {
+  width: 100%; background: none; border: none; outline: none;
+  font-family: 'Viaoda Libre', serif; font-style: italic;
+  font-size: 13px; color: var(--ink); line-height: 1.5;
+  -webkit-appearance: none; appearance: none;
+  padding: 0;
+}
+.profile-input::placeholder { color: var(--ink-faint); font-style: italic; }
+
+/* ── tags section ── */
+.profile-tags-card {
+  margin: 10px 16px 0;
+  background: rgba(255,255,255,0.62);
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255,255,255,0.75);
+  border-radius: 18px; padding: 16px 18px;
+}
+.profile-section-label {
+  font-family: 'Courier Prime', monospace;
+  font-size: 8px; letter-spacing: 0.38em; text-transform: uppercase;
+  color: var(--teal-dark); opacity: 0.55; margin-bottom: 10px;
+}
+.profile-tags {
+  display: flex; flex-wrap: wrap; gap: 7px;
+}
+.profile-tag {
+  font-family: 'Courier Prime', monospace;
+  font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--teal-dark);
+  border: 1px solid rgba(106,173,174,0.4);
+  padding: 4px 10px; border-radius: 20px;
+  cursor: pointer; transition: background 0.2s, color 0.2s; user-select: none;
+}
+.profile-tag.active {
+  background: var(--teal); color: var(--paper); border-color: var(--teal);
+}
+.profile-tag-input-row {
+  display: flex; gap: 8px; margin-top: 10px; align-items: center;
+}
+.profile-tag-add {
+  background: none; border: 1px dashed rgba(106,173,174,0.5);
+  color: var(--teal-dark); font-family: 'Viaoda Libre', serif;
+  font-size: 12px; padding: 6px 14px; cursor: pointer;
+  border-radius: 20px; white-space: nowrap; transition: border-color 0.2s;
+}
+.profile-tag-add:active { border-color: var(--teal); }
+
+/* ── colour mood ── */
+.profile-moods {
+  display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px;
+}
+.mood-swatch {
+  width: 28px; height: 28px; border-radius: 50%;
+  cursor: pointer; border: 2px solid transparent;
+  transition: transform 0.2s, border-color 0.2s;
+}
+.mood-swatch.active { border-color: var(--ink); transform: scale(1.15); }
+.mood-swatch-add {
+  width: 28px; height: 28px; border-radius: 50%;
+  border: 1.5px dashed rgba(106,173,174,0.5);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; color: var(--teal); font-size: 16px; line-height: 1;
+}
+
+.profile-divider { display: none; }
+.profile-section { display: none; } /* replaced by new card layout */
+
+/* save badge */
+.profile-saved {
+  font-size: 9px; letter-spacing: 0.3em; text-transform: uppercase;
+  color: var(--teal); text-align: center; opacity: 0; transition: opacity 0.4s;
+  margin-top: 4px;
+  padding-bottom: 12px;
+}
+.profile-saved.show { opacity: 1; }
+
+/* ══════════════════════════════
+   SCREEN 6 — EXPLORE
+══════════════════════════════ */
+#page-explore {
+  justify-content: flex-start;
+  padding-bottom: calc(var(--nav-h) + 32px);
+  overflow: hidden;
+}
+
+.explore-scroll {
+  width: min(100%, 600px);
+  height: 100%;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 52px 20px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.explore-header {
+  font-size: 9px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  color: var(--teal-dark);
+  opacity: 0.6;
+  margin-bottom: 4px;
+}
+
+.explore-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.explore-card {
+  border-radius: 20px;
+  padding: 18px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  cursor: pointer;
+  min-height: 110px;
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.2s;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255,255,255,0.65);
+  box-shadow: 0 2px 16px rgba(0,0,0,0.05);
+}
+.explore-card:active { transform: scale(0.97); }
+
+.explore-card-icon { font-size: 22px; }
+.explore-card-title {
+  font-family: 'Viaoda Libre', serif;
+  font-size: 16px;
+  color: var(--ink);
+  line-height: 1.2;
+}
+.explore-card-sub {
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  opacity: 0.5;
+}
+
+.explore-card.teal { background: rgba(106,173,174,0.18); }
+.explore-card.blush { background: rgba(192,57,43,0.09); }
+.explore-card.sand { background: rgba(201,185,154,0.28); }
+.explore-card.plum { background: rgba(139,74,90,0.12); }
+
+.explore-full {
+  border-radius: 20px;
+  padding: 18px 18px;
+  background: rgba(255,255,255,0.55);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255,255,255,0.7);
+  box-shadow: 0 2px 16px rgba(0,0,0,0.04);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+.explore-full:active { transform: scale(0.98); }
+.explore-full-icon { font-size: 28px; }
+.explore-full-text { flex: 1; }
+.explore-full-title {
+  font-family: 'Viaoda Libre', serif;
+  font-size: 18px;
+  color: var(--ink);
+}
+.explore-full-sub {
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-top: 2px;
+}
+
+/* ══════════════════════════════
+   SCREEN 6 — GLOBE / EXPLORE
+══════════════════════════════ */
+#page-explore {
+  flex-direction: column;
+  justify-content: flex-start;
+  padding-bottom: calc(var(--nav-h) + 16px);
+  overflow: hidden;
+  gap: 0;
+}
+
+.globe-topbar {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 52px 22px 10px;
+  flex-shrink: 0;
+  z-index: 2;
+}
+.globe-online-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.globe-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: #5ddf8a;
+  box-shadow: 0 0 6px #5ddf8a;
+  animation: pulseDot 1.8s ease-in-out infinite;
+}
+@keyframes pulseDot {
+  0%,100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.5; transform: scale(0.7); }
+}
+#globe-count {
+  font-family: 'Workbench', monospace;
+  font-variation-settings: 'SCAN' 0, 'BLED' 0;
+  font-size: 20px;
+  color: var(--ink);
+  line-height: 1;
+}
+.globe-online-label {
+  font-size: 9px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.globe-title {
+  font-size: 9px;
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+  color: var(--teal-dark);
+  opacity: 0.6;
+}
+
+.globe-stage {
+  position: relative;
+  width: 100%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 0 2px;
+  z-index: 1;
+}
+#globe-canvas {
+  display: block;
+  border-radius: 50%;
+}
+.globe-glow {
+  display: none;
+}
+
+/* user list */
+.globe-list-wrap {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0 0 8px;
+}
+.globe-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 20px 8px;
+  flex-shrink: 0;
+}
+#globe-list-title {
+  font-size: 9px;
+  letter-spacing: 0.38em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.globe-list-tabs {
+  display: flex;
+  gap: 4px;
+  background: rgba(106,173,174,0.1);
+  border-radius: 20px;
+  padding: 3px;
+}
+.globe-tab {
+  border: none;
+  background: none;
+  font-family: 'Viaoda Libre', serif;
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  padding: 4px 12px;
+  border-radius: 16px;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+.globe-tab.active {
+  background: var(--teal);
+  color: #fff;
+}
+
+.globe-list {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.globe-user-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(255,255,255,0.6);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255,255,255,0.75);
+  border-radius: 16px;
+  padding: 10px 14px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.04);
+  cursor: pointer;
+  transition: transform 0.15s;
+}
+.globe-user-card:active { transform: scale(0.98); }
+.globe-user-avatar {
+  width: 38px; height: 38px;
+  border-radius: 50%;
+  background: rgba(106,173,174,0.15);
+  border: 1.5px solid rgba(106,173,174,0.3);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.globe-user-avatar img { width: 100%; height: 100%; object-fit: cover; object-position: top; }
+.globe-user-info { flex: 1; min-width: 0; }
+.globe-user-name {
+  font-family: 'Viaoda Libre', serif;
+  font-size: 15px;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.globe-user-meta {
+  font-size: 8px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--teal);
+  margin-top: 1px;
+}
+.globe-user-dist {
+  font-size: 9px;
+  letter-spacing: 0.15em;
+  color: var(--ink-faint);
+  flex-shrink: 0;
+}
+.globe-user-match {
+  font-size: 9px;
+  background: rgba(106,173,174,0.15);
+  color: var(--teal-dark);
+  border-radius: 20px;
+  padding: 2px 8px;
+  letter-spacing: 0.1em;
+  flex-shrink: 0;
+}
+.globe-empty {
+  text-align: center;
+  padding: 24px;
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  color: var(--ink-faint);
+  font-style: italic;
+}
+
+/* ══════════════════════════════
+   SCREEN 7 — MOOD LOG
+══════════════════════════════ */
+#page-mood {
+  justify-content: flex-start;
+  padding-bottom: calc(var(--nav-h) + 32px);
+  overflow: hidden;
+}
+
+.mood-scroll {
+  width: min(100%, 600px);
+  height: 100%;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 52px 20px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.mood-today {
+  background: rgba(255,255,255,0.55);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255,255,255,0.7);
+  box-shadow: 0 2px 16px rgba(0,0,0,0.04);
+  border-radius: 24px;
+  padding: 20px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mood-today-label {
+  font-size: 9px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  color: var(--teal-dark);
+  opacity: 0.7;
+}
+
+.mood-emoji-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+}
+
+.mood-emoji-btn {
+  font-size: 28px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  width: 48px; height: 48px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.2s, transform 0.15s;
+}
+.mood-emoji-btn:active { transform: scale(1.2); }
+.mood-emoji-btn.selected { background: rgba(106,173,174,0.18); }
+
+.mood-note {
+  width: 100%;
+  background: rgba(106,173,174,0.07);
+  border: none;
+  border-radius: 12px;
+  outline: none;
+  font-family: 'Viaoda Libre', serif;
+  font-size: 14px;
+  color: var(--ink);
+  padding: 10px 12px;
+  resize: none;
+  -webkit-appearance: none;
+  appearance: none;
+  transition: background 0.3s;
+}
+.mood-note:focus { background: rgba(106,173,174,0.13); }
+.mood-note::placeholder { color: var(--ink-faint); font-style: italic; }
+
+.mood-log-title {
+  font-size: 9px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: -6px;
+}
+
+.mood-entry {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  background: rgba(255,255,255,0.55);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,0.7);
+  box-shadow: 0 2px 10px rgba(0,0,0,0.03);
+  margin-bottom: 10px;
+}
+.mood-entry-emoji { font-size: 22px; flex-shrink: 0; }
+.mood-entry-body { flex: 1; }
+.mood-entry-date {
+  font-size: 8px;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: 3px;
+}
+.mood-entry-note {
+  font-family: 'Viaoda Libre', serif;
+  font-size: 13px;
+  color: var(--ink);
+  line-height: 1.5;
+  opacity: 0.8;
+}
+.mood-save-btn {
+  background: var(--teal);
+  color: var(--paper);
+  border: none;
+  border-radius: 50px;
+  font-family: 'Viaoda Libre', serif;
+  font-size: 12px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  padding: 12px 28px;
+  cursor: pointer;
+  align-self: flex-end;
+  transition: opacity 0.2s;
+  box-shadow: 0 4px 14px rgba(106,173,174,0.35);
+}
+.mood-save-btn:active { opacity: 0.75; }
+
+/* ══════════════════════════════
+   INSTALL PROMPT BANNER
+══════════════════════════════ */
+#install-prompt {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  background: rgba(244,241,236,0.97);
+  border-bottom: 1px solid rgba(106,173,174,0.25);
+  padding: 14px 20px 14px 20px;
+  padding-top: calc(14px + env(safe-area-inset-top, 0px));
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  z-index: 300;
+  transform: translateY(-100%);
+  transition: transform 0.45s ease;
+}
+#install-prompt.show { transform: translateY(0); }
+
+.install-text {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: var(--ink);
+  opacity: 0.75;
+  line-height: 1.5;
+  flex: 1;
+}
+.install-text strong {
+  font-family: 'Viaoda Libre', serif;
+  font-size: 13px;
+  color: var(--teal-dark);
+  display: block;
+  margin-bottom: 2px;
+}
+
+.install-close {
+  background: none; border: none;
+  font-size: 18px; color: var(--ink-faint);
+  cursor: pointer; padding: 4px;
+  line-height: 1;
+}
+
+/* ══════════════════════════════
+   FADE ANIMATIONS
+══════════════════════════════ */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.fade-in { animation: fadeUp 0.7s ease forwards; }
+
+/* ══════════════════════════════
+   PERSONA DETAIL OVERLAY — full-screen social profile
+══════════════════════════════ */
+.persona-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 500;
+  background: var(--paper);
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.38s cubic-bezier(0.32,0.72,0,1), opacity 0.38s ease;
+}
+.persona-overlay.hidden {
+  transform: translateY(100%);
+  opacity: 0;
+  pointer-events: none;
+}
+.persona-overlay-bg { display: none; }
+
+/* top nav bar — floats over cover */
+.ps-topbar {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 10;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px;
+}
+.ps-back {
+  width: 36px; height: 36px; border: none;
+  background: rgba(0,0,0,0.28); backdrop-filter: blur(8px);
+  border-radius: 50%; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  color: #fff;
+}
+.ps-back svg { width: 18px; height: 18px; }
+.ps-topbar-name {
+  font-family: 'Courier Prime', monospace;
+  font-size: 13px; font-weight: 700; letter-spacing: 0.06em;
+  color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,0.4);
+}
+
+/* scrollable container */
+.persona-sheet {
+  position: relative;
+  width: 100%; height: 100%;
+  overflow-y: auto; -webkit-overflow-scrolling: touch;
+  display: flex; flex-direction: column;
+}
+
+/* cover banner */
+.ps-cover {
+  position: relative; width: 100%; height: 220px;
+  background: linear-gradient(160deg, #c8c2b4 0%, #9fb8b8 100%);
+  flex-shrink: 0;
+}
+.ps-cover-img {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+}
+/* dark gradient at bottom of cover for legibility */
+.ps-cover::after {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(to bottom, transparent 50%, rgba(0,0,0,0.32) 100%);
+}
+
+/* avatar — overlaps cover bottom edge */
+.ps-avatar-ring {
+  position: absolute; bottom: -40px; left: 20px;
+  width: 80px; height: 80px;
+  border-radius: 50%;
+  border: 4px solid var(--paper);
+  background: var(--paper);
+  box-shadow: 0 4px 18px rgba(0,0,0,0.16);
+  overflow: hidden;
+  z-index: 2;
+}
+.ps-avatar {
+  width: 100%; height: 100%; border-radius: 50%;
+  background: linear-gradient(135deg, var(--teal-light), var(--teal));
+  display: flex; align-items: center; justify-content: center;
+  font-size: 30px; color: #fff; overflow: hidden;
+}
+.ps-avatar img { width: 100%; height: 100%; object-fit: cover; }
+
+/* profile body */
+.ps-body {
+  padding: 52px 20px 20px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.ps-name-row {
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+}
+.ps-name {
+  font-family: 'Viaoda Libre', serif;
+  font-size: 24px; font-weight: 400; color: var(--ink);
+}
+.ps-pronoun {
+  font-family: 'Courier Prime', monospace;
+  font-size: 10px; color: var(--teal); letter-spacing: 0.08em;
+  background: rgba(106,173,174,0.12); border-radius: 20px;
+  padding: 2px 8px;
+}
+.ps-location {
+  font-family: 'Courier Prime', monospace;
+  font-size: 11px; color: var(--ink); opacity: 0.45;
+  letter-spacing: 0.04em; margin-top: -6px;
+}
+.ps-bio {
+  font-family: 'Viaoda Libre', serif; font-style: italic;
+  font-size: 13px; line-height: 1.9; color: var(--ink); opacity: 0.72;
+  margin: 0;
+}
+.ps-tags {
+  display: flex; flex-wrap: wrap; gap: 6px;
+}
+.ps-tag {
+  font-family: 'Courier Prime', monospace; font-size: 10px;
+  letter-spacing: 0.06em; text-transform: lowercase;
+  padding: 3px 10px; border-radius: 20px;
+  border: 1px solid var(--teal); color: var(--teal);
+  background: rgba(106,173,174,0.07);
+}
+.ps-extras {
+  display: flex; flex-direction: column; gap: 10px;
+}
+.ps-extra-row { display: flex; flex-direction: column; gap: 2px; }
+.ps-extra-label {
+  font-family: 'Courier Prime', monospace; font-size: 9px;
+  letter-spacing: 0.35em; text-transform: uppercase; color: var(--teal-dark);
+  opacity: 0.55;
+}
+.ps-extra-val {
+  font-family: 'Viaoda Libre', serif; font-size: 13px;
+  color: var(--ink); line-height: 1.5;
+}
+.ps-actions {
+  display: flex; gap: 10px; margin-top: 4px;
+}
+.ps-btn-msg {
+  flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 13px; background: var(--teal); color: #fff;
+  border: none; border-radius: 50px;
+  font-family: 'Viaoda Libre', serif; font-size: 14px;
+  letter-spacing: 0.18em; text-transform: uppercase;
+  cursor: pointer; transition: opacity 0.2s;
+}
+.ps-btn-msg:active { opacity: 0.78; }
+.ps-btn-msg svg { width: 16px; height: 16px; }
+
+/* divider */
+.ps-divider {
+  height: 1px; background: rgba(0,0,0,0.07); margin: 4px 0;
+}
+
+/* posts section label */
+.ps-posts-label {
+  font-family: 'Courier Prime', monospace;
+  font-size: 9px; letter-spacing: 0.35em; text-transform: uppercase;
+  color: var(--teal-dark); opacity: 0.55; padding: 0 0 6px;
+}
+
+/* photo grid — 3-column masonry-style */
+.ps-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 3px;
+}
+.ps-grid-item {
+  aspect-ratio: 1;
+  background: rgba(0,0,0,0.06);
+  overflow: hidden; cursor: pointer; position: relative;
+}
+.ps-grid-item img {
+  width: 100%; height: 100%; object-fit: cover;
+  transition: opacity 0.2s;
+}
+.ps-grid-item:active img { opacity: 0.8; }
+/* placeholder tile for users without photos */
+.ps-grid-placeholder {
+  width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'Viaoda Libre', serif; font-style: italic;
+  font-size: 11px; color: var(--ink); opacity: 0.28;
+  text-align: center; padding: 8px;
+}
+
+/* posts list (text entries) */
+.ps-posts-list {
+  display: flex; flex-direction: column; gap: 16px; padding-bottom: 40px;
+}
+.ps-post {
+  display: flex; flex-direction: column; gap: 6px;
+}
+.ps-post-date {
+  font-family: 'Courier Prime', monospace; font-size: 9px;
+  letter-spacing: 0.12em; color: var(--ink); opacity: 0.35;
+}
+.ps-post-text {
+  font-family: 'Viaoda Libre', serif; font-style: italic;
+  font-size: 13px; line-height: 1.8; color: var(--ink); opacity: 0.78;
+}
+.ps-post-imgs {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; margin-top: 4px;
+}
+.ps-post-img {
+  aspect-ratio: 1; object-fit: cover; width: 100%;
+  border-radius: 4px; background: rgba(0,0,0,0.06);
+}
+
+/* ══════════════════════════════
+   CHAT OVERLAY
+══════════════════════════════ */
+.chat-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 600;
+  background: var(--paper);
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.38s cubic-bezier(0.32,0.72,0,1), opacity 0.38s;
+}
+.chat-overlay.hidden {
+  transform: translateX(100%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* header */
+.chat-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 52px 18px 14px;
+  background: rgba(244,241,236,0.95);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid rgba(106,173,174,0.15);
+  flex-shrink: 0;
+}
+.chat-back {
+  width: 36px; height: 36px;
+  border: none; background: none;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  color: var(--ink);
+  flex-shrink: 0;
+}
+.chat-back svg { width: 20px; height: 20px; }
+.chat-header-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+}
+.chat-avatar {
+  width: 40px; height: 40px;
+  border-radius: 50%;
+  background: rgba(106,173,174,0.2);
+  overflow: hidden;
+  flex-shrink: 0;
+  border: 1.5px solid rgba(106,173,174,0.35);
+}
+.chat-avatar img { width: 100%; height: 100%; object-fit: cover; object-position: top; }
+.chat-header-name {
+  font-family: 'Viaoda Libre', serif;
+  font-size: 17px;
+  color: var(--ink);
+  line-height: 1.2;
+}
+.chat-header-sub {
+  font-size: 9px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--teal);
+  margin-top: 1px;
+}
+
+/* messages */
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 20px 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.chat-bubble-wrap {
+  display: flex;
+  flex-direction: column;
+  max-width: 78%;
+}
+.chat-bubble-wrap.mine {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+.chat-bubble-wrap.theirs {
+  align-self: flex-start;
+  align-items: flex-start;
+}
+.chat-bubble {
+  padding: 10px 14px;
+  border-radius: 18px;
+  font-family: 'Viaoda Libre', serif;
+  font-size: 14px;
+  line-height: 1.55;
+  position: relative;
+}
+.chat-bubble-wrap.mine .chat-bubble {
+  background: var(--teal);
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+.chat-bubble-wrap.theirs .chat-bubble {
+  background: rgba(255,255,255,0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255,255,255,0.8);
+  color: var(--ink);
+  border-bottom-left-radius: 4px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.05);
+}
+.chat-time {
+  font-size: 8px;
+  letter-spacing: 0.15em;
+  color: var(--ink-faint);
+  margin-top: 3px;
+  text-transform: uppercase;
+}
+
+/* date divider */
+.chat-date-divider {
+  text-align: center;
+  font-size: 8px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin: 6px 0;
+}
+
+/* typing indicator */
+.chat-typing {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  padding: 10px 14px;
+  background: rgba(255,255,255,0.75);
+  border: 1px solid rgba(255,255,255,0.8);
+  border-radius: 18px;
+  border-bottom-left-radius: 4px;
+  width: fit-content;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.05);
+}
+.chat-typing span {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--teal-light);
+  animation: typingDot 1.2s infinite;
+}
+.chat-typing span:nth-child(2) { animation-delay: 0.2s; }
+.chat-typing span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes typingDot {
+  0%,60%,100% { transform: translateY(0); opacity: 0.5; }
+  30%          { transform: translateY(-5px); opacity: 1; }
+}
+
+/* input bar */
+.chat-input-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  background: rgba(244,241,236,0.95);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-top: 1px solid rgba(106,173,174,0.15);
+  flex-shrink: 0;
+}
+.chat-input {
+  flex: 1;
+  background: rgba(255,255,255,0.7);
+  border: 1px solid rgba(106,173,174,0.25);
+  border-radius: 22px;
+  padding: 10px 16px;
+  font-family: 'Viaoda Libre', serif;
+  font-size: 14px;
+  color: var(--ink);
+  outline: none;
+  -webkit-appearance: none;
+  transition: border-color 0.2s;
+}
+.chat-input:focus { border-color: var(--teal); }
+.chat-input::placeholder { color: var(--ink-faint); font-style: italic; }
+.chat-send {
+  width: 40px; height: 40px;
+  border-radius: 50%;
+  background: var(--teal);
+  border: none;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: opacity 0.2s, transform 0.15s;
+}
+.chat-send:active { opacity: 0.75; transform: scale(0.92); }
+.chat-send svg { width: 16px; height: 16px; stroke: #fff; }
+
+/* ══════════════════════════════
+   EXPLORE PHOTO GRID
+══════════════════════════════ */
+.explore-photo-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.explore-photo-item {
+  position: relative;
+  border-radius: 16px;
+  overflow: hidden;
+  cursor: pointer;
+  aspect-ratio: 3/4;
+  background: rgba(106,173,174,0.08);
+  transition: transform 0.2s;
+}
+.explore-photo-item:active { transform: scale(0.97); }
+.explore-photo-item:nth-child(5n+1) { aspect-ratio: 3/4; }
+.explore-photo-item:nth-child(5n+2) { aspect-ratio: 3/5; }
+.explore-photo-item:nth-child(5n+3) { aspect-ratio: 3/4; }
+.explore-photo-item:nth-child(5n+4) { aspect-ratio: 2/3; }
+.explore-photo-item:nth-child(5n+5) { aspect-ratio: 3/4; }
+.explore-photo-img {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  object-position: top center;
+  display: block;
+}
+.explore-photo-caption {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  padding: 28px 10px 10px;
+  background: linear-gradient(to bottom, transparent, rgba(106,173,174,0.68));
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.explore-photo-name {
+  font-family: 'Viaoda Libre', serif;
+  font-size: 13px;
+  color: #fff;
+  line-height: 1.2;
+}
+.explore-photo-tag {
+  font-size: 8px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.65);
+}
+
+</style>
+</head>
+<body>
+<div id="phone-shell">
+
+<!-- ══════════════════════ INSTALL PROMPT ══════════════════════ -->
+<div id="install-prompt">
+  <div class="install-text">
+    <strong>Add to Home Screen</strong>
+    Tap <span style="font-size:13px">⎙</span> Share → "Add to Home Screen" for the full app experience
+  </div>
+  <button class="install-close" id="install-close" aria-label="Dismiss">×</button>
+</div>
+
+<!-- ══════════════════════ PAGE 1: LOADER ══════════════════════ -->
+<div class="page" id="page-loader">
+  <div class="loader-ring-wrap">
+    <canvas id="loader-canvas" width="220" height="220"></canvas>
+    <div class="loader-counter"><span id="counter-num">0</span></div>
+  </div>
+</div>
+
+<!-- ══════════════════════ ONBOARDING ══════════════════════ -->
+<div class="page hidden" id="page-onboarding">
+  <div class="ob-wrap">
+
+    <!-- progress -->
+    <div class="ob-progress-row">
+      <div class="ob-progress-bar"><div class="ob-progress-fill" id="ob-fill" style="width:25%"></div></div>
+      <div class="ob-step-label" id="ob-step-label">1 / 4</div>
+    </div>
+
+    <!-- STEP 1 — nickname -->
+    <div class="ob-step active" id="ob-step-1">
+      <div class="ob-eyebrow">Welcome</div>
+      <div class="ob-title">What shall we<br>call you?</div>
+      <div class="ob-sub">Choose a name that feels like you — or something entirely invented.</div>
+      <input class="ob-input" id="ob-nickname" type="text" placeholder="Your name or alias…" maxlength="32" autocomplete="off">
+      <button class="ob-next" id="ob-next-1">Continue →</button>
+    </div>
+
+    <!-- STEP 2 — pronouns -->
+    <div class="ob-step" id="ob-step-2">
+      <div class="ob-eyebrow">Identity</div>
+      <div class="ob-title">Your pronouns</div>
+      <div class="ob-sub">Select all that apply, or skip.</div>
+      <div class="ob-pronoun-grid" id="ob-pronouns">
+        <span class="ob-pronoun" data-p="she/her">she / her</span>
+        <span class="ob-pronoun" data-p="he/him">he / him</span>
+        <span class="ob-pronoun" data-p="they/them">they / them</span>
+        <span class="ob-pronoun" data-p="she/they">she / they</span>
+        <span class="ob-pronoun" data-p="he/they">he / they</span>
+        <span class="ob-pronoun" data-p="xe/xem">xe / xem</span>
+        <span class="ob-pronoun" data-p="ze/hir">ze / hir</span>
+        <span class="ob-pronoun" data-p="ey/em">ey / em</span>
+        <span class="ob-pronoun" data-p="fae/faer">fae / faer</span>
+        <span class="ob-pronoun" data-p="ve/ver">ve / ver</span>
+        <span class="ob-pronoun" data-p="per/per">per / per</span>
+        <span class="ob-pronoun" data-p="il/lui">il / lui</span>
+        <span class="ob-pronoun" data-p="elle">elle</span>
+        <span class="ob-pronoun" data-p="él/él">él / él</span>
+        <span class="ob-pronoun" data-p="elles/ils">elles / ils</span>
+        <span class="ob-pronoun" data-p="lui/lei">lui / lei</span>
+        <span class="ob-pronoun" data-p="er/ihm">er / ihm</span>
+        <span class="ob-pronoun" data-p="sie/ihr">sie / ihr</span>
+        <span class="ob-pronoun" data-p="彼/他">彼 / 他</span>
+        <span class="ob-pronoun" data-p="彼女/她">彼女 / 她</span>
+        <span class="ob-pronoun" data-p="any">any / all</span>
+      </div>
+      <button class="ob-next" id="ob-next-2">Continue →</button>
+    </div>
+
+    <!-- STEP 3 — birthday -->
+    <div class="ob-step" id="ob-step-3">
+      <div class="ob-eyebrow">A little about you</div>
+      <div class="ob-title">When were<br>you born?</div>
+      <div class="ob-sub">Used only to personalise your experience. Never shown publicly.</div>
+      <div class="ob-bday-row">
+        <input class="ob-bday-part" id="ob-bday-d" type="number" min="1" max="31" placeholder="DD" maxlength="2">
+        <span class="ob-bday-sep">/</span>
+        <input class="ob-bday-part" id="ob-bday-m" type="number" min="1" max="12" placeholder="MM" maxlength="2">
+        <span class="ob-bday-sep">/</span>
+        <input class="ob-bday-part" id="ob-bday-y" type="number" min="1900" max="2099" placeholder="YYYY" style="flex:1.6">
+      </div>
+      <button class="ob-next" id="ob-next-3">Continue →</button>
+    </div>
+
+    <!-- STEP 4 — tags -->
+    <div class="ob-step" id="ob-step-4">
+      <div class="ob-eyebrow">Your world</div>
+      <div class="ob-title">Pick what<br>fits you</div>
+      <div class="ob-sub">Choose as many as feel true.</div>
+
+      <div style="flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch; padding-right:2px;">
+
+        <div class="ob-tags-section">
+          <div class="ob-tags-label">Skills &amp; Craft</div>
+          <div class="ob-tags-grid">
+            <span class="ob-tag teal" data-tag="Photography">Photography</span>
+            <span class="ob-tag teal" data-tag="Fashion Design">Fashion Design</span>
+            <span class="ob-tag teal" data-tag="Writing">Writing</span>
+            <span class="ob-tag teal" data-tag="Music">Music</span>
+            <span class="ob-tag teal" data-tag="Painting">Painting</span>
+            <span class="ob-tag teal" data-tag="Film">Film</span>
+            <span class="ob-tag teal" data-tag="Architecture">Architecture</span>
+            <span class="ob-tag teal" data-tag="Curation">Curation</span>
+            <span class="ob-tag teal" data-tag="Styling">Styling</span>
+            <span class="ob-tag teal" data-tag="Ceramics">Ceramics</span>
+            <span class="ob-tag teal" data-tag="Jewellery">Jewellery</span>
+            <span class="ob-tag teal" data-tag="Illustration">Illustration</span>
+          </div>
+        </div>
+
+        <div class="ob-tags-section">
+          <div class="ob-tags-label">Interests</div>
+          <div class="ob-tags-grid">
+            <span class="ob-tag plum" data-tag="Archive Culture">Archive Culture</span>
+            <span class="ob-tag plum" data-tag="Vintage">Vintage</span>
+            <span class="ob-tag plum" data-tag="Philosophy">Philosophy</span>
+            <span class="ob-tag plum" data-tag="Travel">Travel</span>
+            <span class="ob-tag plum" data-tag="Food">Food</span>
+            <span class="ob-tag plum" data-tag="Literature">Literature</span>
+            <span class="ob-tag plum" data-tag="Theatre">Theatre</span>
+            <span class="ob-tag plum" data-tag="Dance">Dance</span>
+            <span class="ob-tag plum" data-tag="Subculture">Subculture</span>
+            <span class="ob-tag plum" data-tag="Ritual">Ritual</span>
+            <span class="ob-tag plum" data-tag="Identity">Identity</span>
+            <span class="ob-tag plum" data-tag="Nature">Nature</span>
+          </div>
+        </div>
+
+        <div class="ob-tags-section">
+          <div class="ob-tags-label">Social Wishes</div>
+          <div class="ob-tags-grid">
+            <span class="ob-tag sand" data-tag="Collaborate">Collaborate</span>
+            <span class="ob-tag sand" data-tag="Inspire & Be Inspired">Inspire &amp; Be Inspired</span>
+            <span class="ob-tag sand" data-tag="Find Community">Find Community</span>
+            <span class="ob-tag sand" data-tag="Exchange Ideas">Exchange Ideas</span>
+            <span class="ob-tag sand" data-tag="Make Friends">Make Friends</span>
+            <span class="ob-tag sand" data-tag="Show My Work">Show My Work</span>
+            <span class="ob-tag sand" data-tag="Learn from Others">Learn from Others</span>
+            <span class="ob-tag sand" data-tag="Just Explore">Just Explore</span>
+          </div>
+        </div>
+
+      </div>
+
+      <button class="ob-next" id="ob-next-4">Enter Fair Vanity →</button>
+    </div>
+
+  </div>
+</div>
+
+<!-- ══════════════════════ PAGE 2: QUESTIONS ══════════════════════ -->
+<div class="page hidden" id="page-questions">
+  <div class="q-scroll-inner">
+    <p class="q-header">Before you enter —</p>
+
+    <div class="question-block">
+      <p class="question-number">01 / 03</p>
+      <p class="question-label">Who are YOU</p>
+      <textarea class="q-input" id="q-answer-1" rows="3" placeholder="your answer…"></textarea>
+    </div>
+
+    <div class="question-block">
+      <p class="question-number">02 / 03</p>
+      <p class="question-label">Who has all the FUN in the world</p>
+      <textarea class="q-input" id="q-answer-2" rows="3" placeholder="your answer…"></textarea>
+    </div>
+
+    <div class="question-block">
+      <p class="question-number">03 / 03</p>
+      <p class="question-label">Do you wanna have more FUN</p>
+      <textarea class="q-input" id="q-answer-3" rows="3" placeholder="your answer…"></textarea>
+    </div>
+
+    <div class="q-submit-wrap">
+      <button class="q-submit" id="btn-submit">Enter →</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════ PAGE 3: HOME ══════════════════════ -->
+<div class="page hidden" id="page-home">
+
+  <div class="home-title-wrap">
+    <div class="home-title" id="home-title">FLUID MOBILITY</div>
+  </div>
+
+  <div class="home-ring-wrap" id="home-ring-wrap">
+    <svg class="home-ring-svg" id="home-ring-svg" viewBox="0 0 700 700" overflow="visible">
+      <defs>
+        <path id="rp-inner"   d="M350,350 m-245,0 a245,245 0 1,1 490,0 a245,245 0 1,1 -490,0"/>
+        <path id="rp-a"       d="M350,350 m-292,0 a292,292 0 1,1 584,0 a292,292 0 1,1 -584,0"/>
+        <path id="rp-b"       d="M350,350 m-308,0 a308,308 0 1,1 616,0 a308,308 0 1,1 -616,0"/>
+        <path id="rp-c"       d="M350,350 m-318,0 a318,318 0 1,1 636,0 a318,318 0 1,1 -636,0"/>
+        <path id="rp-d"       d="M350,350 m-334,0 a334,334 0 1,1 668,0 a334,334 0 1,1 -668,0"/>
+        <path id="rp-e"       d="M350,350 m-352,0 a352,352 0 1,1 704,0 a352,352 0 1,1 -704,0"/>
+        <path id="rp-f"       d="M350,350 m-368,0 a368,368 0 1,1 736,0 a368,368 0 1,1 -736,0"/>
+        <path id="rp-g"       d="M350,350 m-385,0 a385,385 0 1,1 770,0 a385,385 0 1,1 -770,0"/>
+        <filter id="f-sharp"><feGaussianBlur stdDeviation="0.4"/></filter>
+        <filter id="f-light"><feGaussianBlur stdDeviation="1.0"/></filter>
+        <filter id="f-mid">  <feGaussianBlur stdDeviation="1.6"/></filter>
+        <filter id="f-heavy"><feGaussianBlur stdDeviation="2.6"/></filter>
+        <filter id="f-ghost"><feGaussianBlur stdDeviation="4.0"/></filter>
+      </defs>
+
+      <text fill="#1a1a1a" opacity="0.68">
+        <textPath href="#rp-a" startOffset="0%">Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair ·</textPath>
+      </text>
+      <text fill="#1a1a1a" filter="url(#f-light)" opacity="0.28">
+        <textPath href="#rp-a" startOffset="2.2%">Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair ·</textPath>
+      </text>
+      <text fill="#4a8b8c" filter="url(#f-mid)" opacity="0.32">
+        <textPath href="#rp-b" startOffset="7%">Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity ·</textPath>
+      </text>
+      <text fill="#4a8b8c" filter="url(#f-ghost)" opacity="0.16">
+        <textPath href="#rp-b" startOffset="4%">Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity ·</textPath>
+      </text>
+      <circle cx="350" cy="350" r="278" fill="none" stroke="#c0392b" stroke-width="0.7" opacity="0.65"/>
+      <text fill="#1a1a1a" filter="url(#f-sharp)" opacity="0.55">
+        <textPath href="#rp-c" startOffset="13%">Mobility · Fluid · Vanity · Fair · Persona · Mobility · Fluid · Vanity · Fair · Persona · Mobility · Fluid · Vanity · Fair · Persona ·</textPath>
+      </text>
+      <text fill="#8b4a5a" filter="url(#f-mid)" opacity="0.20">
+        <textPath href="#rp-c" startOffset="15%">Mobility · Fluid · Vanity · Fair · Persona · Mobility · Fluid · Vanity · Fair · Persona · Mobility · Fluid · Vanity · Fair · Persona ·</textPath>
+      </text>
+      <text fill="#2a2a2a" filter="url(#f-heavy)" opacity="0.22">
+        <textPath href="#rp-d" startOffset="0%">Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity ·</textPath>
+      </text>
+      <text fill="#888880" font-size="11" opacity="0.55">
+        <textPath href="#rp-e" startOffset="5%">Vanity · Fair · Fluid · Mobility · Persona · Vanity · Fair · Fluid · Mobility · Persona · Vanity · Fair · Fluid · Mobility · Persona · Vanity · Fair · Fluid · Mobility · Persona ·</textPath>
+      </text>
+      <text fill="#888880" font-size="11" filter="url(#f-light)" opacity="0.25">
+        <textPath href="#rp-e" startOffset="6.5%">Vanity · Fair · Fluid · Mobility · Persona · Vanity · Fair · Fluid · Mobility · Persona · Vanity · Fair · Fluid · Mobility · Persona · Vanity · Fair · Fluid · Mobility · Persona ·</textPath>
+      </text>
+      <text fill="#6aadae" filter="url(#f-ghost)" opacity="0.18">
+        <textPath href="#rp-f" startOffset="20%">Fair Vanity Fair Vanity Fair Vanity Fair Vanity Fair Vanity Fair Vanity Fair Vanity Fair Vanity Fair Vanity Fair Vanity Fair Vanity</textPath>
+      </text>
+      <text fill="#1a1a1a" filter="url(#f-mid)" opacity="0.14">
+        <textPath href="#rp-g" startOffset="0%">Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair ·</textPath>
+      </text>
+      <text class="ring-inner">
+        <textPath href="#rp-inner" startOffset="0%">Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity ·</textPath>
+      </text>
+    </svg>
+  </div>
+
+  <div class="home-subtitle">your persona, lavishly built, by you</div>
+</div>
+
+<!-- ══════════════════════ PAGE 4: CARDS ══════════════════════ -->
+<div class="page hidden" id="page-cards">
+
+  <!-- fan carousel stage -->
+  <div class="fan-stage" id="fan-stage">
+    <div class="fan-track" id="fan-track"></div>
+  </div>
+
+  <!-- perspective word ring -->
+  <div class="ring-stage">
+    <canvas id="ring-canvas"></canvas>
+  </div>
+
+</div>
+
+<!-- ══════════════════════ PAGE 5: PROFILE ══════════════════════ -->
+<div class="page hidden" id="page-profile">
+  <div class="profile-scroll">
+
+    <!-- hero cover photo -->
+    <div class="profile-hero" id="profile-hero">
+      <img class="profile-hero-cover" id="profile-hero-img" src="" alt="" style="display:none">
+      <button class="profile-hero-edit-btn" id="profile-hero-btn" title="Change cover">
+        <svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+      </button>
+      <input type="file" id="profile-hero-input" accept="image/*" style="display:none">
+    </div>
+
+    <!-- identity: avatar + name -->
+    <div class="profile-identity">
+      <div class="profile-avatar-wrap">
+        <div class="profile-avatar" id="profile-avatar">✦</div>
+        <div class="profile-avatar-edit" id="profile-avatar-btn">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <input type="file" id="profile-avatar-input" accept="image/*" style="display:none">
+      </div>
+      <div class="profile-name-col">
+        <input class="profile-name-input" id="profile-name" type="text" placeholder="Your name" maxlength="40">
+        <div class="profile-handle" id="profile-handle">@persona</div>
+      </div>
+    </div>
+
+    <!-- online status -->
+    <div class="profile-status-row">
+      <div class="profile-status-dot"></div>
+      <span class="profile-status-text">open to connection</span>
+    </div>
+
+    <!-- stat row -->
+    <div class="profile-stats">
+      <div class="profile-stat">
+        <div class="profile-stat-val" id="stat-days">1</div>
+        <div class="profile-stat-label">Days Here</div>
+      </div>
+      <div class="profile-stat">
+        <div class="profile-stat-val" id="stat-connections">0</div>
+        <div class="profile-stat-label">Connections</div>
+      </div>
+      <div class="profile-stat">
+        <div class="profile-stat-val" id="stat-mood">✦</div>
+        <div class="profile-stat-label">Mood</div>
+      </div>
+    </div>
+
+    <!-- manifesto card (teal) -->
+    <div class="profile-manifesto-card">
+      <div class="profile-manifesto-label">Manifesto</div>
+      <textarea class="profile-textarea" id="profile-bio" rows="3" placeholder="Describe yourself in your own words…"></textarea>
+    </div>
+
+    <!-- three questions (read-only display) -->
+    <div class="profile-qa-card" id="profile-qa-card">
+      <div class="profile-qa-row">
+        <div class="profile-qa-num">01</div>
+        <div class="profile-qa-body">
+          <div class="profile-qa-q">Who are YOU</div>
+          <div class="profile-qa-a" id="qa-display-1">—</div>
+        </div>
+        <div class="profile-qa-edit">›</div>
+      </div>
+      <div class="profile-qa-row">
+        <div class="profile-qa-num">02</div>
+        <div class="profile-qa-body">
+          <div class="profile-qa-q">Who has all the FUN in the world</div>
+          <div class="profile-qa-a" id="qa-display-2">—</div>
+        </div>
+        <div class="profile-qa-edit">›</div>
+      </div>
+      <div class="profile-qa-row">
+        <div class="profile-qa-num">03</div>
+        <div class="profile-qa-body">
+          <div class="profile-qa-q">Do you wanna have more FUN</div>
+          <div class="profile-qa-a" id="qa-display-3">—</div>
+        </div>
+        <div class="profile-qa-edit">›</div>
+      </div>
+    </div>
+
+    <!-- two-col: era + signature item -->
+    <div class="profile-two-col">
+      <div class="profile-info-card">
+        <div class="profile-info-card-label">Current Era</div>
+        <input class="profile-input" id="profile-era" type="text" placeholder="late modernist fever dream…">
+      </div>
+      <div class="profile-info-card">
+        <div class="profile-info-card-label">Signature Item</div>
+        <input class="profile-input" id="profile-item" type="text" placeholder="the one unmistakable thing…">
+      </div>
+    </div>
+
+    <!-- influences full-width -->
+    <div class="profile-tags-card" style="margin-top:10px">
+      <div class="profile-section-label">Influences</div>
+      <textarea class="profile-textarea" id="profile-influences" rows="2"
+        placeholder="People, places, objects, films…"
+        style="color:var(--ink);background:rgba(106,173,174,0.07);border-radius:10px;padding:8px 10px;"></textarea>
+    </div>
+
+    <!-- aesthetic tags -->
+    <div class="profile-tags-card">
+      <div class="profile-section-label">Aesthetic Keywords</div>
+      <div class="profile-tags" id="profile-tags">
+        <span class="profile-tag" data-tag="Vintage">Vintage</span>
+        <span class="profile-tag" data-tag="Editorial">Editorial</span>
+        <span class="profile-tag" data-tag="Fluid">Fluid</span>
+        <span class="profile-tag" data-tag="Minimal">Minimal</span>
+        <span class="profile-tag" data-tag="Opulent">Opulent</span>
+        <span class="profile-tag" data-tag="Subversive">Subversive</span>
+        <span class="profile-tag" data-tag="Archival">Archival</span>
+        <span class="profile-tag" data-tag="Tactile">Tactile</span>
+      </div>
+      <div class="profile-tag-input-row">
+        <input class="profile-input" id="profile-tag-input" type="text" placeholder="add your own tag…" style="font-size:12px;">
+        <button class="profile-tag-add" id="profile-tag-add">+ Add</button>
+      </div>
+    </div>
+
+    <!-- colour mood -->
+    <div class="profile-tags-card" style="margin-bottom:24px">
+      <div class="profile-section-label">Colour Mood</div>
+      <div class="profile-moods" id="profile-moods">
+        <div class="mood-swatch" style="background:#c9b99a" data-color="#c9b99a"></div>
+        <div class="mood-swatch" style="background:#6aadae" data-color="#6aadae"></div>
+        <div class="mood-swatch" style="background:#c0392b" data-color="#c0392b"></div>
+        <div class="mood-swatch" style="background:#2a2a2a" data-color="#2a2a2a"></div>
+        <div class="mood-swatch" style="background:#e8d5c4" data-color="#e8d5c4"></div>
+        <div class="mood-swatch" style="background:#8b4a5a" data-color="#8b4a5a"></div>
+        <div class="mood-swatch-add" id="mood-add">+</div>
+        <input type="color" id="mood-color-input" style="display:none">
+      </div>
+    </div>
+
+    <div class="profile-saved" id="profile-saved">— saved —</div>
+
+  </div>
+</div>
+
+<!-- ══════════════════════ PAGE 6: EXPLORE ══════════════════════ -->
+<div class="page hidden" id="page-explore">
+  <!-- live counter bar -->
+  <div class="globe-topbar">
+    <div class="globe-online-wrap">
+      <span class="globe-dot"></span>
+      <span id="globe-count">0</span>
+      <span class="globe-online-label">online now</span>
+    </div>
+    <div class="globe-title">Fair Vanity · World</div>
+  </div>
+
+  <!-- 3-D globe canvas -->
+  <div class="globe-stage">
+    <canvas id="globe-canvas"></canvas>
+    <div class="globe-glow"></div>
+  </div>
+  <!-- nearby / matched users list -->
+  <div class="globe-list-wrap">
+    <div class="globe-list-header">
+      <span id="globe-list-title">Near You</span>
+      <div class="globe-list-tabs">
+        <button class="globe-tab active" data-tab="near">Near</button>
+        <button class="globe-tab" data-tab="match">Match</button>
+      </div>
+    </div>
+    <div class="globe-list" id="globe-list"></div>
+  </div>
+</div>
+
+<!-- ══════════════════════ PAGE 7: MOOD LOG ══════════════════════ -->
+<div class="page hidden" id="page-mood">
+  <div class="mood-scroll">
+
+    <div class="mood-today">
+      <div class="mood-today-label">How are you today</div>
+      <div class="mood-emoji-row">
+        <button class="mood-emoji-btn" data-mood="✦">✦</button>
+        <button class="mood-emoji-btn" data-mood="◈">◈</button>
+        <button class="mood-emoji-btn" data-mood="◉">◉</button>
+        <button class="mood-emoji-btn" data-mood="◎">◎</button>
+        <button class="mood-emoji-btn" data-mood="◐">◐</button>
+      </div>
+      <textarea class="mood-note" id="mood-note-input" rows="2" placeholder="a note on today's persona…"></textarea>
+      <button class="mood-save-btn" id="mood-save">Record →</button>
+    </div>
+
+    <div class="mood-log-title">Past Entries</div>
+    <div id="mood-log"></div>
+
+  </div>
+</div>
+
+<!-- ══════════════════════ BOTTOM NAV ══════════════════════ -->
+<nav id="nav-bar">
+  <button class="nav-btn active" data-page="page-home" id="nav-home">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+      <circle cx="12" cy="12" r="9"/>
+      <path d="M12 3 A9 9 0 0 1 12 21"/>
+    </svg>
+    Home
+  </button>
+  <button class="nav-btn" data-page="page-explore" id="nav-explore">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+      <circle cx="11" cy="11" r="7"/>
+      <path d="M21 21l-4.35-4.35" stroke-linecap="round"/>
+    </svg>
+    Explore
+  </button>
+  <button class="nav-btn" data-page="page-cards" id="nav-cards">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+      <rect x="3" y="5" width="14" height="18" rx="1"/>
+      <rect x="7" y="2" width="14" height="18" rx="1"/>
+    </svg>
+    Archive
+  </button>
+  <button class="nav-btn" data-page="page-mood" id="nav-mood">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+      <path d="M12 21C12 21 4 14 4 9a8 8 0 0116 0c0 5-8 12-8 12z" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    Mood
+  </button>
+  <button class="nav-btn" data-page="page-profile" id="nav-profile">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+      <circle cx="12" cy="8" r="4"/>
+      <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
+    </svg>
+    Profile
+  </button>
+</nav>
+
+<script>
+/* ── IMAGE POOL ── */
+const imgPool = [
+  'image.png',
+  'image (3).png','image (4).png','image (5).png','image (6).png','image (7).png',
+  'image (8).png','image (9).png','image (10).png','image (11).png','image (12).png',
+  'image (13).png','image (14).png','image (15).png','image (16).png','image (17).png',
+  'image (18).png','image (19).png','image (20).png','image (21).png','image (22).png',
+  'image (23).png','image (24).png','image (25).png','image (26).png',
+];
+
+/* ── ALL PERSONAS (60 people) ── */
+const allPersonas = [
+  { label:'Margaux D.',   title:'The Archivist',      body:'She catalogues every garment like evidence — each piece a footnote to a life lived in silhouette.',            foot:'Vintage · Paris' },
+  { label:'Soren K.',     title:'Fluid Architect',    body:'His identity shifts with the season. One week brutalist, the next: dissolved into linen and absence.',         foot:'Minimal · Oslo' },
+  { label:'Yuki T.',      title:'Paper Self',         body:'Everything she wears is a draft. Nothing is final. The wardrobe is a manuscript in constant revision.',        foot:'Editorial · Tokyo' },
+  { label:'Cleo M.',      title:'The Mirror',         body:'She dresses not for others but for the version of herself she is still becoming.',                             foot:'Opulent · Cairo' },
+  { label:'Finn R.',      title:'Borrowed Gestures',  body:'He collects mannerisms from strangers — a collar, a pause, a way of entering rooms.',                         foot:'Archival · Dublin' },
+  { label:'Isadora V.',   title:'Vanity Unbound',     body:'Vanity, she says, is just memory made visible. She wears her history on the outside.',                        foot:'Tactile · Lisbon' },
+  { label:'Remy B.',      title:'The Negative Space', body:'What he removes tells you more than what he keeps. Subtraction as style.',                                    foot:'Minimal · Lyon' },
+  { label:'Aisha O.',     title:'Fluid Form',         body:'Identity drifts like water. She finds her level in every new vessel she enters.',                             foot:'Fluid · Lagos' },
+  { label:'Theo G.',      title:'Era Unknown',        body:'He exists in a time that has not been named yet. The clothes confirm it.',                                    foot:'Subversive · Berlin' },
+  { label:'Lena F.',      title:'The Footnote',       body:'Every look is a citation. She references people she has never met but somehow already knows.',                foot:'Editorial · Vienna' },
+  { label:'Omar S.',      title:'Silk Archive',       body:'The self, preserved. He treats his wardrobe the way others treat libraries — with reverence and silence.',    foot:'Vintage · Beirut' },
+  { label:'Nadia C.',     title:'Constructed Self',   body:'She builds her persona the way one builds a sentence — with intention, rhythm, and the occasional comma.',    foot:'Archival · Montreal' },
+  { label:'Jules P.',     title:'The Draft',          body:'Nothing is final. The self is always in revision. This season is a footnote to last season.',                 foot:'Fluid · Brussels' },
+  { label:'Hana M.',      title:'Soft Brutalism',     body:'Hard lines, soft materials. She contradicts herself beautifully and refuses to explain.',                     foot:'Tactile · Seoul' },
+  { label:'Elias D.',     title:'The Collector',      body:'He acquires gestures the way others acquire objects. His wardrobe is a cabinet of borrowed selves.',          foot:'Opulent · Amsterdam' },
+  { label:'Vera K.',      title:'Ghost Garment',      body:'Some pieces she wears so often they become transparent — part of the body, not the closet.',                  foot:'Minimal · Prague' },
+  { label:'Mateo A.',     title:'Persona Non Grata',  body:'His style refuses categorisation. Labels dissolve on contact. He remains pleasantly undefined.',              foot:'Subversive · Buenos Aires' },
+  { label:'Simone L.',    title:'Lavish Interior',    body:'The extravagance is all internal. Outside: a single colour, worn perfectly.',                                 foot:'Editorial · Dakar' },
+  { label:'Ren W.',       title:'The Vessel',         body:'Identity as container. She holds different selves at different hours. All of them are accurate.',             foot:'Fluid · Shanghai' },
+  { label:'Hugo N.',      title:'Pattern Memory',     body:'Every textile he chooses carries a history he did not live but somehow remembers.',                           foot:'Archival · São Paulo' },
+  { label:'Celeste M.',   title:'Soft Archive',       body:'Her memory lives in fabric. A scarf, a hem, a button — each one a date she refuses to forget.',              foot:'Vintage · Marseille' },
+  { label:'Dax L.',       title:'The Outline',        body:'He dresses in silhouette. The details are irrelevant. The shape is everything.',                              foot:'Minimal · Los Angeles' },
+  { label:'Amara T.',     title:'Living Palimpsest',  body:'Layers upon layers. Each new self written over the last, but nothing fully erased.',                          foot:'Tactile · Accra' },
+  { label:'Suki V.',      title:'The Citation',       body:'She quotes people through clothing — their posture, their proportion, their particular shade of blue.',       foot:'Editorial · Hong Kong' },
+  { label:'Leo B.',       title:'Temporal Drift',     body:'He seems to arrive from a decade that almost existed. The gap between eras suits him perfectly.',             foot:'Fluid · Copenhagen' },
+  { label:'Fatima R.',    title:'Silk Evidence',      body:'What she wears is documentation. Proof of a self in progress, filed for later review.',                      foot:'Archival · Casablanca' },
+  { label:'Otis J.',      title:'The Residue',        body:'Style, he says, is what is left after everything unnecessary has been removed. He has removed a great deal.', foot:'Minimal · New York' },
+  { label:'Miriam E.',    title:'Worn Theory',        body:'Her outfits read like essays. Dense, considered, occasionally difficult, always worth the effort.',            foot:'Opulent · Tel Aviv' },
+  { label:'Kai N.',       title:'Fluid Margin',       body:'He exists at the edge of every category. Deliberately. The margin is where things get interesting.',          foot:'Subversive · Auckland' },
+  { label:'Petra V.',     title:'The Palimpsest',     body:'Nothing disappears. Every old self is still present under the current one, if you know how to look.',         foot:'Vintage · Warsaw' },
+  { label:'Dani O.',      title:'Soft Manifesto',     body:'Her wardrobe is a political act performed so quietly most people miss it entirely.',                          foot:'Editorial · Nairobi' },
+  { label:'Arlo M.',      title:'The Inheritance',    body:'He wears things as if he received them from someone wiser. Even when he bought them himself last week.',      foot:'Archival · Edinburgh' },
+  { label:'Nour F.',      title:'Constructed Light',  body:'Everything she wears seems to be catching different light than the room allows. This is not accidental.',     foot:'Opulent · Amman' },
+  { label:'Ida B.',       title:'Spectral Style',     body:'She dresses as if being photographed for a magazine that does not exist yet but absolutely should.',          foot:'Fluid · Stockholm' },
+  { label:'Tomas H.',     title:'The Revision',       body:'He treats each morning as an editorial decision. Yesterday is never quite right.',                            foot:'Minimal · Bratislava' },
+  { label:'Lyra C.',      title:'Borrowed Light',     body:'She collects the aesthetic residue of people she admires and wears it without apology.',                      foot:'Tactile · Melbourne' },
+  { label:'Cyrus D.',     title:'The Index',          body:'His wardrobe is alphabetical only in his own system. The logic is private, the result is impeccable.',        foot:'Archival · Tehran' },
+  { label:'Bea S.',       title:'Interior Weather',   body:'What she wears reflects an entirely interior climate. Today it is overcast with periods of silk.',            foot:'Editorial · Glasgow' },
+  { label:'Zayn A.',      title:'Negative Capability', body:'He wears uncertainty the way others wear confidence — completely, without apology, to great effect.',        foot:'Subversive · Karachi' },
+  { label:'Mara P.',      title:'The Remainder',      body:'After everything fashionable has been subtracted, what remains is her. This is the point.',                   foot:'Minimal · Athens' },
+  { label:'Ines V.',      title:'Colonial Archive',   body:'She excavates aesthetics the way one excavates ruins — carefully, aware that everything is someone else first.',foot:'Vintage · Recife' },
+  { label:'Blaise M.',    title:'The Margin Note',    body:'His style is commentary. Everything he wears responds to something else without naming it directly.',         foot:'Fluid · Bordeaux' },
+  { label:'Zara T.',      title:'Surface Tension',    body:'She works at the threshold. Between dressed and undressed, between statement and silence.',                   foot:'Editorial · Johannesburg' },
+  { label:'Emil K.',      title:'The Anachronism',    body:'He exists in the wrong era and has decided this is a compliment. The clothes agree.',                         foot:'Archival · Vilnius' },
+  { label:'Rosa N.',      title:'Worn Evidence',      body:'Every stain, every thread, every irreparable thing — kept. The imperfections are the archive.',               foot:'Tactile · Guadalajara' },
+  { label:'Sasha L.',     title:'The Understudied',   body:'They rehearse selves the way actors rehearse roles. Some run longer than expected.',                          foot:'Fluid · Kyiv' },
+  { label:'Nico D.',      title:'Slow Vanity',        body:'He takes his time with himself. The preparation is the performance. The exit is incidental.',                 foot:'Opulent · Milan' },
+  { label:'Lila R.',      title:'The Negative',       body:'She photographs beautifully in absence. What she does not wear says everything.',                             foot:'Minimal · Reykjavik' },
+  { label:'Jasper V.',    title:'Archive Fever',      body:'He cannot stop collecting. The closet overflows but only with the right things, arranged correctly.',         foot:'Archival · Antwerp' },
+  { label:'Mia S.',       title:'Ambient Self',       body:'Her identity functions like background music — always present, rarely noticed, completely essential.',        foot:'Fluid · Singapore' },
+  { label:'Rafi O.',      title:'The Draft Copy',     body:'Nothing he wears is finished. Everything is provisional. He looks extraordinary regardless.',                 foot:'Editorial · Jerusalem' },
+  { label:'Sofie B.',     title:'Constructed Calm',   body:'The stillness is deliberate. Each piece chosen to reduce noise. The result is a kind of visual silence.',    foot:'Minimal · Ghent' },
+  { label:'Ivan T.',      title:'The Ruin',           body:'He favours things that look already used, already known. Newness makes him uncomfortable.',                   foot:'Vintage · Tbilisi' },
+  { label:'Alma C.',      title:'Fluid Inheritance',  body:'She inherits aesthetics the way one inherits language — unconsciously, then deliberately, then fluently.',    foot:'Archival · Havana' },
+  { label:'Rex M.',       title:'The Posture',        body:'Half his style is how he stands in it. The clothes know this. They cooperate accordingly.',                   foot:'Opulent · Lagos' },
+  { label:'Cora V.',      title:'Spectral Residue',   body:'She leaves an aesthetic impression in rooms after she leaves them. People are not sure why.',                 foot:'Tactile · Edinburgh' },
+  { label:'Jem A.',       title:'The Theorem',        body:'His style proves something, though he refuses to say what. The conclusion is always well dressed.',           foot:'Subversive · Nairobi' },
+  { label:'Tia R.',       title:'Living Draft',       body:'She is never finished. Each version corrects the last. The current draft is the best yet.',                  foot:'Fluid · Bridgetown' },
+  { label:'Ezra L.',      title:'The Quiet Vanity',   body:'He spends an hour on himself and then acts like he did not. Both things are true and beautiful.',             foot:'Editorial · Portland' },
+  { label:'Sable N.',     title:'The Threshold',      body:'She lives in the space between definition and dissolution. Her wardrobe maps the border.',                    foot:'Minimal · Cape Town' },
+];
+
+/* assign images to personas cyclically */
+allPersonas.forEach((p, i) => { p.img = imgPool[i % imgPool.length]; });
+
+/* pick 5 random personas each load */
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+/* ── CYLINDER CAROUSEL — infinite random feed ── */
+(function () {
+  const track  = document.getElementById('fan-track');
+  const canvas = document.getElementById('ring-canvas');
+  const ctx    = canvas.getContext('2d');
+
+  /* shuffle once, refill when exhausted */
+  let pool  = shuffle([...allPersonas]);
+  let poolI = 0;
+  function nextPersona() {
+    if (poolI >= pool.length) { pool = shuffle([...allPersonas]); poolI = 0; }
+    return pool[poolI++];
+  }
+
+  /* cylinder holds N slots; we cycle personas into them */
+  const N     = 5;
+  const ANGLE = 360 / N;
+
+  const vw    = Math.min(window.innerWidth, 520);
+  const cardW = Math.round(vw * 0.42);
+  const cardH = Math.round(cardW * 1.78);   /* slim-tall portrait */
+  const radius = Math.round(cardW * 0.76);
+
+  /* canvas word-ring */
+  const CW = Math.round(vw * 0.88), CH = 120;
+  canvas.width = CW; canvas.height = CH;
+  canvas.style.width = CW + 'px'; canvas.style.height = CH + 'px';
+  const RING_WORDS = ['Fair','·','Vanity','·','Fluid','·','Mobility','·','Persona','·','Identity','·',
+                      'Fair','·','Vanity','·','Fluid','·','Mobility','·','Persona','·','Identity','·'];
+  const RING_N = RING_WORDS.length;
+  const RX = CW*0.46, RY = CW*0.12, CX = CW/2, CY = CH*0.28;
+  let ringAngle = 0;
+
+  /* per-slot: DOM element + current persona */
+  const slots = Array.from({ length: N }, (_, i) => {
+    const p  = nextPersona();
+    const el = buildCard(p, i);
+    track.appendChild(el);
+    return { el, persona: p, idx: i };
+  });
+
+  track.style.width  = '0';
+  track.style.height = '0';
+
+  /* ── build one card ── */
+  function buildCard(p, slotIdx) {
+    const el = document.createElement('div');
+    el.className = 'card';
+    el.style.cssText = `
+      width:${cardW}px; height:${cardH}px;
+      position:absolute;
+      margin-left:${-cardW/2}px;
+      margin-top:${-cardH/2}px;
+      transform: rotateY(${ANGLE * slotIdx}deg) translateZ(${radius}px);
+    `;
+    fillCardContent(el, p);
+    return el;
+  }
+
+  /* ── fill / refresh card content ── */
+  function fillCardContent(el, p) {
+    const tags = p.foot.split('·').map(s => s.trim()).filter(Boolean);
+    const tagsHtml = tags.map(t => `<span class="card-tag">${t}</span>`).join('');
+    el.innerHTML = `
+      ${p.img ? `<img class="card-bg" src="${p.img}" alt="${p.label}" loading="lazy">` : ''}
+      <div class="card-gradient"></div>
+      <div class="card-thick-left"></div>
+      <div class="card-content">
+        <div class="card-location">
+          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
+          ${tags[1] || ''}
+        </div>
+        <div class="card-name-row">
+          <span class="card-name">${p.label}</span>
+          <span class="card-title-badge">${tags[0] || ''}</span>
+        </div>
+        <div class="card-tags">${tagsHtml}</div>
+        <div class="card-bio-label">BIO</div>
+        <div class="card-bio">${p.body}</div>
+        <div class="card-actions">
+          <button class="card-btn card-btn-pass" data-action="pass">✕</button>
+          <button class="card-btn card-btn-like" data-action="like">♥</button>
+        </div>
+      </div>`;
+
+    /* buttons: pass rotates cylinder; like opens detail */
+    el.querySelectorAll('.card-btn').forEach(btn => {
+      btn.addEventListener('pointerdown', e => e.stopPropagation());
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        if (btn.dataset.action === 'like') {
+          openPersona(p);
+        } else {
+          targetAngle = snapAngle(cylAngle - ANGLE);
+        }
+      });
+    });
+  }
+
+  /* ── cylinder state ── */
+  let cylAngle   = 0;
+  let targetAngle = 0;
+  let isDragging = false, startX = 0, lastX = 0, velX = 0, dragStart = 0;
+
+  /* track which slot was "last front" so we can refresh stale slots */
+  let lastFrontSlot = 0;
+
+  function frontSlot() {
+    const a = ((-cylAngle % 360) + 360) % 360;
+    return Math.round(a / ANGLE) % N;
+  }
+
+  function snapAngle(raw) {
+    const a = ((-raw % 360) + 360) % 360;
+    const idx = Math.round(a / ANGLE) % N;
+    return -(idx * ANGLE) - Math.round(raw / 360) * 360;
+  }
+
+  /* floating animation — each card gets its own phase */
+  const floatPhase = slots.map(() => Math.random() * Math.PI * 2);
+  let floatT = 0;
+
+  /* ── main render loop ── */
+  function render() {
+    floatT += 0.016;
+    cylAngle += (targetAngle - cylAngle) * 0.12;
+    track.style.transform = `rotateY(${cylAngle}deg)`;
+
+    const front = frontSlot();
+
+    /* swap out persona on slot that just rotated to back */
+    if (front !== lastFrontSlot) {
+      /* the slot now facing away (opposite side) gets a fresh persona */
+      const awaySlot = (front + Math.floor(N / 2)) % N;
+      const s = slots[awaySlot];
+      s.persona = nextPersona();
+      /* reset position transform before filling — keep the rotateY */
+      s.el.style.transform = `rotateY(${ANGLE * s.idx}deg) translateZ(${radius}px)`;
+      fillCardContent(s.el, s.persona);
+      lastFrontSlot = front;
+    }
+
+    slots.forEach((s, i) => {
+      /* angular distance from front face */
+      let ang = ((ANGLE * i + cylAngle) % 360 + 360) % 360;
+      if (ang > 180) ang = 360 - ang;
+      const t   = ang / 180;
+      const blur = t * t * 4;
+      const op   = ang < 4 ? 1 : Math.max(0.50, 1 - t * 0.55);
+      const isFront = i === front;
+
+      s.el.style.filter     = blur > 0.2 ? `blur(${blur.toFixed(1)}px)` : '';
+      s.el.style.opacity    = op.toFixed(3);
+      s.el.style.visibility = ang > 90 ? 'hidden' : 'visible';
+      s.el.classList.toggle('is-front', isFront);
+
+      /* floating bob — only visible cards */
+      if (ang <= 90) {
+        const bob = Math.sin(floatT * 1.1 + floatPhase[i]) * 5;   /* ±5 px */
+        s.el.style.transform =
+          `rotateY(${ANGLE * i}deg) translateZ(${radius}px) translateY(${bob}px)`;
+      }
+    });
+
+    drawRing();
+    requestAnimationFrame(render);
+  }
+  render();
+
+  /* ── swipe ── */
+  function onDown(e) {
+    isDragging = true; velX = 0;
+    const x = e.touches ? e.touches[0].clientX : e.clientX;
+    startX = x; lastX = x; dragStart = cylAngle;
+  }
+  function onMove(e) {
+    if (!isDragging) return;
+    const x = e.touches ? e.touches[0].clientX : e.clientX;
+    velX = x - lastX; lastX = x;
+    /* only allow dragging forward (left swipe = negative delta = decreasing cylAngle) */
+    const delta = Math.min(0, (x - startX) * 0.38);
+    cylAngle = dragStart + delta;
+    targetAngle = cylAngle;
+  }
+  function onUp() {
+    if (!isDragging) return;
+    isDragging = false;
+    /* only carry forward momentum */
+    const fwd = Math.min(0, velX * 1.6);
+    targetAngle = snapAngle(cylAngle + fwd);
+  }
+
+  /* tap front card → open detail */
+  let pointerDownT = 0, pointerMoved = false;
+  track.addEventListener('pointerdown', e => {
+    pointerDownT = Date.now(); pointerMoved = false;
+  });
+  track.addEventListener('pointermove', () => { pointerMoved = true; });
+  track.addEventListener('pointerup', e => {
+    if (pointerMoved || Date.now() - pointerDownT > 250) return;
+    const f = frontSlot();
+    openPersona(slots[f].persona);
+  });
+
+  track.addEventListener('mousedown',  onDown);
+  track.addEventListener('touchstart', onDown, { passive: true });
+  window.addEventListener('mousemove', onMove);
+  window.addEventListener('touchmove', onMove, { passive: true });
+  window.addEventListener('mouseup',   onUp);
+  window.addEventListener('touchend',  onUp);
+
+  /* ── canvas word ring ── */
+  function drawRing() {
+    ctx.clearRect(0, 0, CW, CH);
+    ringAngle += 0.008;
+    const items = [];
+    for (let i = 0; i < RING_N; i++) {
+      const theta = (2 * Math.PI * i / RING_N) + ringAngle;
+      const x = CX + RX * Math.cos(theta), y = CY + RY * Math.sin(theta);
+      const depth = Math.sin(theta), t = (depth + 1) / 2;
+      items.push({ word: RING_WORDS[i], x, y,
+        scale: 0.55 + 0.45*t, op: 0.30 + 0.70*t, blur: (1-t)*1.8, depth });
+    }
+    items.sort((a, b) => a.depth - b.depth);
+    items.forEach(({ word, x, y, scale, op, blur }) => {
+      ctx.save();
+      ctx.globalAlpha = op;
+      if (blur > 0.15) ctx.filter = `blur(${blur.toFixed(1)}px)`;
+      ctx.font = `${Math.round(20*scale)}px 'Fredericka the Great', serif`;
+      ctx.fillStyle = '#6aadae'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(word, x, y);
+      ctx.restore();
+    });
+  }
+})();
+
+/* ── PAGE TRANSITIONS ── */
+let currentPage = 'page-loader';
+function goTo(id, direction = 'up') {
+  const from = document.getElementById(currentPage);
+  const to   = document.getElementById(id);
+  if (!to || id === currentPage) return;
+  from.classList.add('hidden');
+  to.classList.remove('hidden', 'slide-up');
+  to.classList.add('fade-in');
+  setTimeout(() => to.classList.remove('fade-in'), 800);
+  currentPage = id;
+
+  // update nav
+  document.querySelectorAll('.nav-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.page === id);
+  });
+}
+
+/* ── LOADER COUNTER ── */
+const counterEl  = document.getElementById('counter-num');
+const loaderCvs  = document.getElementById('loader-canvas');
+const loaderCtx  = loaderCvs.getContext('2d');
+const LW = 220, LH = 220, LR = 96, LC = 110;
+
+function drawLoaderArc(pct) {
+  loaderCtx.clearRect(0, 0, LW, LH);
+  /* track — full dashed circle */
+  loaderCtx.beginPath();
+  loaderCtx.arc(LC, LC, LR, 0, Math.PI * 2);
+  loaderCtx.strokeStyle = 'rgba(106,173,174,0.15)';
+  loaderCtx.lineWidth = 14;
+  loaderCtx.setLineDash([10, 12]);
+  loaderCtx.lineDashOffset = 0;
+  loaderCtx.stroke();
+  /* progress arc */
+  if (pct > 0) {
+    const totalLen = 2 * Math.PI * LR;
+    loaderCtx.beginPath();
+    loaderCtx.arc(LC, LC, LR, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * pct);
+    loaderCtx.strokeStyle = '#6aadae';
+    loaderCtx.lineWidth = 14;
+    loaderCtx.lineCap = 'butt';
+    loaderCtx.setLineDash([10, 12]);
+    loaderCtx.lineDashOffset = 0;
+    loaderCtx.stroke();
+    loaderCtx.setLineDash([]);
+  }
+}
+
+drawLoaderArc(0);
+let count = 0;
+const ticker = setInterval(() => {
+  count++;
+  counterEl.textContent = count;
+  drawLoaderArc(count / 100);
+  if (count >= 100) {
+    clearInterval(ticker);
+    setTimeout(() => goTo('page-onboarding'), 500);
+  }
+}, 32);
+
+/* ── ONBOARDING ── */
+(function () {
+  const TOTAL = 4;
+  const fill  = document.getElementById('ob-fill');
+  const label = document.getElementById('ob-step-label');
+
+  function setStep(n) {
+    document.querySelectorAll('.ob-step').forEach(s => s.classList.remove('active'));
+    document.getElementById('ob-step-' + n).classList.add('active');
+    fill.style.width  = (n / TOTAL * 100) + '%';
+    label.textContent = n + ' / ' + TOTAL;
+  }
+
+  /* Step 1 — nickname */
+  const nickInput = document.getElementById('ob-nickname');
+  document.getElementById('ob-next-1').addEventListener('click', () => {
+    if (!nickInput.value.trim()) { nickInput.focus(); return; }
+    setStep(2);
+  });
+  nickInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('ob-next-1').click();
+  });
+
+  /* Step 2 — pronouns (multi-select, optional) */
+  document.getElementById('ob-pronouns').addEventListener('click', e => {
+    const chip = e.target.closest('.ob-pronoun');
+    if (chip) chip.classList.toggle('selected');
+  });
+  document.getElementById('ob-next-2').addEventListener('click', () => setStep(3));
+
+  /* Step 3 — birthday */
+  const bdD = document.getElementById('ob-bday-d');
+  const bdM = document.getElementById('ob-bday-m');
+  const bdY = document.getElementById('ob-bday-y');
+
+  /* auto-advance on fill */
+  bdD.addEventListener('input', () => { if (bdD.value.length >= 2) bdM.focus(); });
+  bdM.addEventListener('input', () => { if (bdM.value.length >= 2) bdY.focus(); });
+
+  document.getElementById('ob-next-3').addEventListener('click', () => {
+    /* birthday optional — just skip if empty */
+    setStep(4);
+  });
+
+  /* Step 4 — tags (multi-select) */
+  document.getElementById('page-onboarding').addEventListener('click', e => {
+    const tag = e.target.closest('.ob-tag');
+    if (tag) tag.classList.toggle('selected');
+  });
+
+  document.getElementById('ob-next-4').addEventListener('click', () => {
+    /* save to localStorage */
+    const profile = {
+      nickname: nickInput.value.trim(),
+      pronouns: [...document.querySelectorAll('.ob-pronoun.selected')].map(c => c.dataset.p),
+      birthday: { d: bdD.value, m: bdM.value, y: bdY.value },
+      tags:     [...document.querySelectorAll('.ob-tag.selected')].map(c => c.dataset.tag),
+    };
+    try { localStorage.setItem('fv-onboarding', JSON.stringify(profile)); } catch(e) {}
+
+    /* update profile name if set */
+    if (profile.nickname) {
+      const ni = document.getElementById('profile-name');
+      if (ni) ni.value = profile.nickname;
+      const ph = document.getElementById('profile-handle');
+      if (ph) ph.textContent = '@' + profile.nickname.toLowerCase().replace(/\s+/g,'');
+    }
+
+    goTo('page-questions');
+  });
+})();
+
+/* ── SUBMIT → save answers + show app ── */
+document.getElementById('btn-submit').addEventListener('click', () => {
+  try {
+    const ob = JSON.parse(localStorage.getItem('fv-onboarding')) || {};
+    ob.q1 = (document.getElementById('q-answer-1').value || '').trim();
+    ob.q2 = (document.getElementById('q-answer-2').value || '').trim();
+    ob.q3 = (document.getElementById('q-answer-3').value || '').trim();
+    localStorage.setItem('fv-onboarding', JSON.stringify(ob));
+  } catch(e) {}
+  goTo('page-home');
+  document.getElementById('nav-bar').classList.add('visible');
+});
+
+/* ── NAV BUTTONS ── */
+document.querySelectorAll('.nav-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (btn.dataset.page) goTo(btn.dataset.page);
+  });
+});
+
+/* ── FIT TITLE WIDTH ── */
+(function fitTitle() {
+  const title = document.getElementById('home-title');
+  const wrap  = title.parentElement;
+  function scale() {
+    title.style.transform = 'scaleX(1)';
+    const ratio = wrap.offsetWidth / title.scrollWidth;
+    title.style.transform = `scaleX(${Math.min(ratio, 1)})`;
+    title.style.transformOrigin = 'center center';
+  }
+  scale();
+  window.addEventListener('resize', scale);
+})();
+
+/* ── AUTO-SPIN RING ── */
+(function () {
+  const svg = document.getElementById('home-ring-svg');
+  let angle = 0;
+  function render() {
+    angle += 0.08;
+    svg.style.transform = `rotate(${angle}deg)`;
+    requestAnimationFrame(render);
+  }
+  requestAnimationFrame(render);
+})();
+
+/* ── INSTALL PROMPT ── */
+const prompt = document.getElementById('install-prompt');
+const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+const isStandalone = window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches;
+const dismissed = sessionStorage.getItem('install-dismissed');
+if (isIOS && !isStandalone && !dismissed) {
+  setTimeout(() => prompt.classList.add('show'), 3500);
+}
+document.getElementById('install-close').addEventListener('click', () => {
+  prompt.classList.remove('show');
+  sessionStorage.setItem('install-dismissed', '1');
+});
+
+/* ── PROFILE ── */
+(function () {
+  const STORE = 'fv-profile-v1';
+  const load  = () => { try { return JSON.parse(localStorage.getItem(STORE)) || {}; } catch { return {}; } };
+  const save  = (data) => { localStorage.setItem(STORE, JSON.stringify(data)); showSaved(); };
+  const state = load();
+
+  const savedEl = document.getElementById('profile-saved');
+  let saveTimer;
+  function showSaved() {
+    savedEl.classList.add('show');
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => savedEl.classList.remove('show'), 1800);
+  }
+
+  /* text fields — auto-save on input */
+  const fields = ['profile-name','profile-bio','profile-era','profile-influences','profile-item'];
+  fields.forEach(id => {
+    const el = document.getElementById(id);
+    if (state[id]) el.value = state[id];
+    el.addEventListener('input', () => {
+      state[id] = el.value;
+      if (id === 'profile-name') {
+        const h = document.getElementById('profile-handle');
+        h.textContent = el.value ? '@' + el.value.toLowerCase().replace(/\s+/g,'') : '@persona';
+      }
+      save(state);
+    });
+  });
+
+  /* restore handle */
+  if (state['profile-name']) {
+    document.getElementById('profile-handle').textContent =
+      '@' + state['profile-name'].toLowerCase().replace(/\s+/g,'');
+  }
+
+  /* aesthetic tags */
+  const tagsWrap = document.getElementById('profile-tags');
+  state.tags = state.tags || [];
+
+  function refreshTags() {
+    tagsWrap.querySelectorAll('.profile-tag').forEach(t => {
+      t.classList.toggle('active', state.tags.includes(t.dataset.tag));
+    });
+  }
+  refreshTags();
+
+  tagsWrap.addEventListener('click', e => {
+    const t = e.target.closest('.profile-tag');
+    if (!t) return;
+    const tag = t.dataset.tag;
+    if (state.tags.includes(tag)) state.tags = state.tags.filter(x => x !== tag);
+    else state.tags.push(tag);
+    refreshTags();
+    save(state);
+  });
+
+  /* custom tag add */
+  const tagInput = document.getElementById('profile-tag-input');
+  document.getElementById('profile-tag-add').addEventListener('click', () => {
+    const val = tagInput.value.trim();
+    if (!val) return;
+    if (!tagsWrap.querySelector(`[data-tag="${val}"]`)) {
+      const chip = document.createElement('span');
+      chip.className = 'profile-tag active';
+      chip.dataset.tag = val;
+      chip.textContent = val;
+      tagsWrap.appendChild(chip);
+    }
+    if (!state.tags.includes(val)) state.tags.push(val);
+    tagInput.value = '';
+    save(state);
+  });
+  tagInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('profile-tag-add').click();
+  });
+
+  /* colour mood swatches */
+  const moodsWrap = document.getElementById('profile-moods');
+  state.colors = state.colors || [];
+
+  function refreshColors() {
+    moodsWrap.querySelectorAll('.mood-swatch').forEach(s => {
+      s.classList.toggle('active', state.colors.includes(s.dataset.color));
+    });
+  }
+  refreshColors();
+
+  moodsWrap.addEventListener('click', e => {
+    const s = e.target.closest('.mood-swatch');
+    if (!s) return;
+    const c = s.dataset.color;
+    if (state.colors.includes(c)) state.colors = state.colors.filter(x => x !== c);
+    else state.colors.push(c);
+    refreshColors();
+    save(state);
+  });
+
+  /* custom colour picker */
+  const colorInput = document.getElementById('mood-color-input');
+  document.getElementById('mood-add').addEventListener('click', () => colorInput.click());
+  colorInput.addEventListener('change', () => {
+    const c = colorInput.value;
+    if (moodsWrap.querySelector(`[data-color="${c}"]`)) return;
+    const swatch = document.createElement('div');
+    swatch.className = 'mood-swatch active';
+    swatch.style.background = c;
+    swatch.dataset.color = c;
+    moodsWrap.insertBefore(swatch, document.getElementById('mood-add'));
+    if (!state.colors.includes(c)) state.colors.push(c);
+    save(state);
+  });
+
+  /* avatar image upload */
+  const avatarEl  = document.getElementById('profile-avatar');
+  const avatarBtn = document.getElementById('profile-avatar-btn');
+  const avatarInput = document.getElementById('profile-avatar-input');
+
+  if (state.avatar) {
+    avatarEl.innerHTML = `<img src="${state.avatar}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">`;
+  }
+  avatarBtn.addEventListener('click', () => avatarInput.click());
+  avatarInput.addEventListener('change', () => {
+    const file = avatarInput.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = e => {
+      state.avatar = e.target.result;
+      avatarEl.innerHTML = `<img src="${state.avatar}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">`;
+      save(state);
+    };
+    reader.readAsDataURL(file);
+  });
+
+  /* hero / cover photo upload */
+  const heroBtn   = document.getElementById('profile-hero-btn');
+  const heroInput = document.getElementById('profile-hero-input');
+  const heroImg   = document.getElementById('profile-hero-img');
+  if (state.heroCover) { heroImg.src = state.heroCover; heroImg.style.display = ''; }
+  heroBtn.addEventListener('click', () => heroInput.click());
+  heroInput.addEventListener('change', () => {
+    const file = heroInput.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      state.heroCover = ev.target.result;
+      heroImg.src = state.heroCover; heroImg.style.display = '';
+      save(state);
+    };
+    reader.readAsDataURL(file);
+  });
+
+  /* load Q&A answers from onboarding */
+  function loadQA() {
+    try {
+      const ob = JSON.parse(localStorage.getItem('fv-onboarding')) || {};
+      const q1 = document.getElementById('qa-display-1');
+      const q2 = document.getElementById('qa-display-2');
+      const q3 = document.getElementById('qa-display-3');
+      if (q1) q1.textContent = ob.q1 || '—';
+      if (q2) q2.textContent = ob.q2 || '—';
+      if (q3) q3.textContent = ob.q3 || '—';
+    } catch(e) {}
+  }
+  loadQA();
+
+  /* tap Q&A card to re-open questions page for editing */
+  const qaCard = document.getElementById('profile-qa-card');
+  if (qaCard) {
+    qaCard.addEventListener('click', () => {
+      if (typeof goTo === 'function') goTo('page-questions');
+    });
+  }
+
+  /* join date → days counter */
+  if (!state.joinDate) { state.joinDate = Date.now(); save(state); }
+  const days = Math.max(1, Math.round((Date.now() - state.joinDate) / 86400000));
+  const daysEl = document.getElementById('stat-days');
+  if (daysEl) daysEl.textContent = days;
+})();
+
+/* ── MOOD LOG ── */
+(function () {
+  const STORE = 'fv-mood-v1';
+  const load  = () => { try { return JSON.parse(localStorage.getItem(STORE)) || []; } catch { return []; } };
+  let entries = load();
+  let selected = null;
+
+  const logEl   = document.getElementById('mood-log');
+  const noteEl  = document.getElementById('mood-note-input');
+  const saveBtn = document.getElementById('mood-save');
+
+  /* emoji selection */
+  document.querySelectorAll('.mood-emoji-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.mood-emoji-btn').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+      selected = btn.dataset.mood;
+    });
+  });
+
+  function renderLog() {
+    logEl.innerHTML = '';
+    [...entries].reverse().forEach(e => {
+      const el = document.createElement('div');
+      el.className = 'mood-entry';
+      el.innerHTML = `
+        <div class="mood-entry-emoji">${e.mood}</div>
+        <div class="mood-entry-body">
+          <div class="mood-entry-date">${e.date}</div>
+          <div class="mood-entry-note">${e.note || '—'}</div>
+        </div>`;
+      logEl.appendChild(el);
+    });
+  }
+  renderLog();
+
+  saveBtn.addEventListener('click', () => {
+    if (!selected) return;
+    const now = new Date();
+    const date = now.toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' });
+    entries.push({ mood: selected, note: noteEl.value.trim(), date });
+    localStorage.setItem(STORE, JSON.stringify(entries));
+    noteEl.value = '';
+    selected = null;
+    document.querySelectorAll('.mood-emoji-btn').forEach(b => b.classList.remove('selected'));
+    renderLog();
+  });
+})();
+
+/* ── PERSONA DETAIL OVERLAY ── */
+let currentPersona = null;
+
+function openPersona(p) {
+  currentPersona = p;
+  const overlay = document.getElementById('persona-overlay');
+
+  document.getElementById('ps-topbar-name').textContent = p.label || p.name || '';
+
+  const coverImg = document.getElementById('ps-cover-img');
+  if (p.img) { coverImg.src = p.img; coverImg.style.display = ''; }
+  else coverImg.style.display = 'none';
+
+  const av = document.getElementById('ps-avatar');
+  if (p.img) av.innerHTML = `<img src="${p.img}" alt="">`;
+  else av.textContent = (p.label || p.name || '?')[0].toUpperCase();
+
+  document.getElementById('ps-name').textContent    = p.label || p.name || '';
+  document.getElementById('ps-pronoun').textContent = p.pronoun || p.pronouns || '';
+  document.getElementById('ps-location').textContent =
+    [p.city, p.country].filter(Boolean).join(', ') || p.title || '';
+
+  document.getElementById('ps-bio').textContent = p.body || p.bio || '';
+
+  const tagsEl = document.getElementById('ps-tags');
+  const rawTags = p.tags || (p.foot ? p.foot.split('·').map(s=>s.trim()).filter(Boolean) : []);
+  tagsEl.innerHTML = rawTags.map(t => `<span class="ps-tag">${t}</span>`).join('');
+
+  const extras = [];
+  if (p.era)        extras.push({ label: 'Current Era',    val: p.era });
+  if (p.influences) extras.push({ label: 'Influences',     val: p.influences });
+  if (p.item)       extras.push({ label: 'Signature Item', val: p.item });
+  document.getElementById('ps-extras').innerHTML = extras.map(e =>
+    `<div class="ps-extra-row">
+      <span class="ps-extra-label">${e.label}</span>
+      <span class="ps-extra-val">${e.val}</span>
+    </div>`).join('');
+
+  /* posts / moments */
+  const posts = p.posts || [];
+  const postsEl = document.getElementById('ps-posts-list');
+  if (posts.length) {
+    postsEl.innerHTML = posts.map(post => {
+      const imgs = (post.imgs || []).map(src =>
+        `<img class="ps-post-img" src="${src}" alt="">`).join('');
+      const imgGrid = imgs ? `<div class="ps-post-imgs">${imgs}</div>` : '';
+      return `<div class="ps-post">
+        <div class="ps-post-date">${post.date || ''}</div>
+        <div class="ps-post-text">${post.text || ''}</div>
+        ${imgGrid}
+      </div>`;
+    }).join('');
+  } else {
+    postsEl.innerHTML = `<div style="font-family:'Courier Prime',monospace;font-size:11px;color:var(--ink);opacity:0.3;letter-spacing:0.06em;padding:8px 0;">nothing yet.</div>`;
+  }
+
+  /* scroll sheet back to top */
+  document.getElementById('persona-sheet').scrollTop = 0;
+
+  overlay.classList.remove('hidden');
+}
+window.openPersona = openPersona;
+
+function closePersona() {
+  document.getElementById('persona-overlay').classList.add('hidden');
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('persona-close').addEventListener('click', closePersona);
+  document.getElementById('persona-overlay-bg').addEventListener('click', closePersona);
+  document.getElementById('persona-msg-btn').addEventListener('click', () => {
+    if (currentPersona) window.openChat(currentPersona);
+  });
+});
+
+/* ── CHAT OVERLAY ── */
+(function () {
+  const chatOverlay = document.getElementById('chat-overlay');
+  const chatBack    = document.getElementById('chat-back');
+  const chatMsgs    = document.getElementById('chat-messages');
+  const chatInput   = document.getElementById('chat-input');
+  const chatSend    = document.getElementById('chat-send');
+
+  /* preset replies per persona — falls back to generic pool */
+  const genericReplies = [
+    "I find that idea quite compelling, actually.",
+    "That resonates with something I've been thinking about.",
+    "Interesting. Tell me more.",
+    "I wasn't expecting that. But I like it.",
+    "There's something poetic about what you just said.",
+    "Mmm. I need a moment with that.",
+    "You have a very particular way of seeing things.",
+    "That's the kind of thing I'd write in the margin of a book.",
+    "I agree, though I'd phrase it differently.",
+    "Curious. Most people don't notice that.",
+  ];
+
+  let chatPersona = null;
+  let replyIdx    = 0;
+  let typingEl    = null;
+
+  function openChat(p) {
+    chatPersona = p;
+    replyIdx = 0;
+    chatMsgs.innerHTML = '';
+    closePersona();
+
+    /* header */
+    document.getElementById('chat-header-name').textContent = p.label;
+    document.getElementById('chat-header-sub').textContent  = p.title;
+    const av = document.getElementById('chat-avatar');
+    av.innerHTML = p.img
+      ? `<img src="${p.img}" alt="${p.label}">`
+      : '✦';
+
+    /* date divider */
+    addDateDivider('Today');
+
+    /* opening message from them */
+    setTimeout(() => addBubble('theirs', greetingFor(p)), 500);
+
+    chatOverlay.classList.remove('hidden');
+    chatInput.focus();
+  }
+
+  function closeChat() {
+    chatOverlay.classList.add('hidden');
+  }
+
+  window.openChat = openChat;
+
+  chatBack.addEventListener('click', closeChat);
+
+  function greetingFor(p) {
+    const greetings = [
+      `You liked my profile. I'm not sure what that says about you, but I'm intrigued.`,
+      `Oh, you found me. I was beginning to think no one would.`,
+      `So — you stopped scrolling. That's already something.`,
+      `I don't do small talk. But I'll make an exception.`,
+      `You have taste. Let's see if you have something to say.`,
+    ];
+    return greetings[Math.abs(p.label.length + p.title.length) % greetings.length];
+  }
+
+  function addDateDivider(text) {
+    const d = document.createElement('div');
+    d.className = 'chat-date-divider';
+    d.textContent = `— ${text} —`;
+    chatMsgs.appendChild(d);
+  }
+
+  function addBubble(side, text) {
+    const wrap = document.createElement('div');
+    wrap.className = `chat-bubble-wrap ${side}`;
+    const now = new Date();
+    const time = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    wrap.innerHTML = `
+      <div class="chat-bubble">${text}</div>
+      <div class="chat-time">${time}</div>`;
+    chatMsgs.appendChild(wrap);
+    chatMsgs.scrollTop = chatMsgs.scrollHeight;
+    return wrap;
+  }
+
+  function showTyping() {
+    typingEl = document.createElement('div');
+    typingEl.className = 'chat-bubble-wrap theirs';
+    typingEl.innerHTML = `
+      <div class="chat-typing">
+        <span></span><span></span><span></span>
+      </div>`;
+    chatMsgs.appendChild(typingEl);
+    chatMsgs.scrollTop = chatMsgs.scrollHeight;
+  }
+
+  function hideTyping() {
+    if (typingEl) { typingEl.remove(); typingEl = null; }
+  }
+
+  function sendReply() {
+    const replies = genericReplies;
+    const msg = replies[replyIdx % replies.length];
+    replyIdx++;
+    showTyping();
+    const delay = 900 + msg.length * 18;
+    setTimeout(() => {
+      hideTyping();
+      addBubble('theirs', msg);
+    }, delay);
+  }
+
+  function sendMessage() {
+    const text = chatInput.value.trim();
+    if (!text) return;
+    addBubble('mine', text);
+    chatInput.value = '';
+    setTimeout(sendReply, 400 + Math.random() * 300);
+  }
+
+  chatSend.addEventListener('click', sendMessage);
+  chatInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') sendMessage();
+  });
+})();
+
+
+/* ── SERVICE WORKER ── */
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js').catch(() => {});
+}
+</script>
+
+<!-- ══════════════════════ PERSONA DETAIL OVERLAY ══════════════════════ -->
+<div id="persona-overlay" class="persona-overlay hidden">
+  <div class="persona-overlay-bg" id="persona-overlay-bg"></div>
+
+  <!-- floating back button -->
+  <div class="ps-topbar">
+    <button class="ps-back" id="persona-close">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+    </button>
+    <span class="ps-topbar-name" id="ps-topbar-name"></span>
+    <div style="width:36px"></div>
+  </div>
+
+  <!-- full-screen scroll container -->
+  <div class="persona-sheet" id="persona-sheet">
+
+    <!-- cover photo -->
+    <div class="ps-cover" id="ps-cover">
+      <img class="ps-cover-img" id="ps-cover-img" src="" alt="">
+      <div class="ps-avatar-ring">
+        <div class="ps-avatar" id="ps-avatar">✦</div>
+      </div>
+    </div>
+
+    <!-- profile info -->
+    <div class="ps-body">
+
+      <div class="ps-name-row">
+        <span class="ps-name" id="ps-name"></span>
+        <span class="ps-pronoun" id="ps-pronoun"></span>
+      </div>
+      <div class="ps-location" id="ps-location"></div>
+
+      <p class="ps-bio" id="ps-bio"></p>
+
+      <div class="ps-tags" id="ps-tags"></div>
+
+      <div class="ps-extras" id="ps-extras"></div>
+
+      <div class="ps-actions">
+        <button class="ps-btn-msg" id="persona-msg-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          Message
+        </button>
+      </div>
+
+      <div class="ps-divider"></div>
+
+      <div class="ps-posts-label">Moments</div>
+      <div class="ps-posts-list" id="ps-posts-list"></div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════ CHAT OVERLAY ══════════════════════ -->
+<div id="chat-overlay" class="chat-overlay hidden">
+  <div class="chat-header">
+    <button class="chat-back" id="chat-back">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+    </button>
+    <div class="chat-header-info">
+      <div class="chat-avatar" id="chat-avatar"></div>
+      <div>
+        <div class="chat-header-name" id="chat-header-name"></div>
+        <div class="chat-header-sub" id="chat-header-sub"></div>
+      </div>
+    </div>
+  </div>
+  <div class="chat-messages" id="chat-messages"></div>
+  <div class="chat-input-bar">
+    <input class="chat-input" id="chat-input" type="text" placeholder="Say something…" autocomplete="off">
+    <button class="chat-send" id="chat-send">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+    </button>
+  </div>
+</div>
+
+</div><!-- #phone-shell -->
+</body>
+</html>
