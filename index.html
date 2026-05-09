@@ -2035,134 +2035,108 @@ textarea.q-input { min-height: 60px; line-height: 1.6; }
 /* ══════════════════════════════
    SCREEN 7 — MOOD LOG
 ══════════════════════════════ */
+/* ══════════════════════════════
+   PAGE: MESSAGES
+══════════════════════════════ */
 #page-mood {
   justify-content: flex-start;
-  padding-bottom: calc(var(--nav-h) + 32px);
   overflow: hidden;
 }
 
-.mood-scroll {
-  width: min(100%, 600px);
+.msg-page-scroll {
+  width: 100%;
   height: 100%;
+  padding-bottom: calc(var(--nav-h) + 16px);
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding: 52px 20px 20px;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  box-sizing: border-box;
 }
 
-.mood-today {
-  background: rgba(255,255,255,0.55);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255,255,255,0.7);
-  box-shadow: 0 2px 16px rgba(0,0,0,0.04);
-  border-radius: 24px;
-  padding: 20px 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+.msg-page-header {
+  padding: 52px 20px 14px;
+  flex-shrink: 0;
+}
+.msg-page-title {
+  font-family: 'Viaoda Libre', serif;
+  font-size: 26px; color: var(--ink);
+}
+.msg-page-sub {
+  font-family: 'Courier Prime', monospace;
+  font-size: 9px; letter-spacing: 0.32em; text-transform: uppercase;
+  color: var(--ink-faint); margin-top: 2px;
 }
 
-.mood-today-label {
-  font-size: 9px;
-  letter-spacing: 0.4em;
-  text-transform: uppercase;
-  color: var(--teal-dark);
-  opacity: 0.7;
+.msg-search-wrap {
+  padding: 0 16px 12px;
+  flex-shrink: 0;
 }
-
-.mood-emoji-row {
-  display: flex;
-  justify-content: space-between;
-  padding: 4px 0;
+.msg-search {
+  width: 100%; box-sizing: border-box;
+  background: rgba(255,255,255,0.6);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255,255,255,0.75);
+  border-radius: 14px; padding: 10px 14px;
+  font-family: 'Courier Prime', monospace;
+  font-size: 12px; color: var(--ink);
+  outline: none; -webkit-appearance: none;
 }
+.msg-search::placeholder { color: var(--ink-faint); }
 
-.mood-emoji-btn {
-  font-size: 28px;
-  background: none;
-  border: none;
+.msg-list { display: flex; flex-direction: column; padding: 0 16px; gap: 0; }
+
+.msg-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(0,0,0,0.05);
   cursor: pointer;
-  width: 48px; height: 48px;
-  border-radius: 50%;
+  transition: opacity 0.15s;
+}
+.msg-row:active { opacity: 0.65; }
+.msg-row:last-child { border-bottom: none; }
+
+.msg-avatar {
+  width: 48px; height: 48px; border-radius: 50%; flex-shrink: 0;
+  background: linear-gradient(135deg, var(--teal-light), var(--teal));
   display: flex; align-items: center; justify-content: center;
-  transition: background 0.2s, transform 0.15s;
+  font-size: 20px; color: #fff; overflow: hidden;
+  position: relative;
 }
-.mood-emoji-btn:active { transform: scale(1.2); }
-.mood-emoji-btn.selected { background: rgba(106,173,174,0.18); }
-
-.mood-note {
-  width: 100%;
-  background: rgba(106,173,174,0.07);
-  border: none;
-  border-radius: 12px;
-  outline: none;
-  font-family: 'Viaoda Libre', serif;
-  font-size: 14px;
-  color: var(--ink);
-  padding: 10px 12px;
-  resize: none;
-  -webkit-appearance: none;
-  appearance: none;
-  transition: background 0.3s;
-}
-.mood-note:focus { background: rgba(106,173,174,0.13); }
-.mood-note::placeholder { color: var(--ink-faint); font-style: italic; }
-
-.mood-log-title {
-  font-size: 9px;
-  letter-spacing: 0.4em;
-  text-transform: uppercase;
-  color: var(--ink-faint);
-  margin-bottom: -6px;
+.msg-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.msg-avatar-online {
+  position: absolute; bottom: 1px; right: 1px;
+  width: 10px; height: 10px; border-radius: 50%;
+  background: #5ddf8a; border: 2px solid var(--paper);
 }
 
-.mood-entry {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 14px 16px;
-  background: rgba(255,255,255,0.55);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border-radius: 18px;
-  border: 1px solid rgba(255,255,255,0.7);
-  box-shadow: 0 2px 10px rgba(0,0,0,0.03);
-  margin-bottom: 10px;
+.msg-info { flex: 1; min-width: 0; }
+.msg-name-row { display: flex; align-items: baseline; justify-content: space-between; }
+.msg-name {
+  font-family: 'Viaoda Libre', serif; font-size: 15px; color: var(--ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.mood-entry-emoji { font-size: 22px; flex-shrink: 0; }
-.mood-entry-body { flex: 1; }
-.mood-entry-date {
-  font-size: 8px;
-  letter-spacing: 0.25em;
-  text-transform: uppercase;
-  color: var(--ink-faint);
-  margin-bottom: 3px;
+.msg-time {
+  font-family: 'Courier Prime', monospace; font-size: 9px;
+  color: var(--ink-faint); flex-shrink: 0; margin-left: 8px;
 }
-.mood-entry-note {
-  font-family: 'Viaoda Libre', serif;
-  font-size: 13px;
-  color: var(--ink);
-  line-height: 1.5;
-  opacity: 0.8;
+.msg-preview {
+  font-family: 'Courier Prime', monospace; font-size: 11px;
+  color: var(--ink-faint); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; margin-top: 2px;
 }
-.mood-save-btn {
-  background: var(--teal);
-  color: var(--paper);
-  border: none;
-  border-radius: 50px;
-  font-family: 'Viaoda Libre', serif;
-  font-size: 12px;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  padding: 12px 28px;
-  cursor: pointer;
-  align-self: flex-end;
-  transition: opacity 0.2s;
-  box-shadow: 0 4px 14px rgba(106,173,174,0.35);
+.msg-preview.unread { color: var(--teal-dark); font-weight: 700; }
+
+.msg-unread-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--teal); flex-shrink: 0;
 }
-.mood-save-btn:active { opacity: 0.75; }
+
+.msg-empty {
+  text-align: center; padding: 60px 20px;
+  font-family: 'Viaoda Libre', serif; font-style: italic;
+  font-size: 14px; color: var(--ink-faint); line-height: 1.8;
+}
 
 /* ══════════════════════════════
    INSTALL PROMPT BANNER
@@ -3107,23 +3081,22 @@ textarea.q-input { min-height: 60px; line-height: 1.6; }
 
 <!-- ══════════════════════ PAGE 7: MOOD LOG ══════════════════════ -->
 <div class="page hidden" id="page-mood">
-  <div class="mood-scroll">
+  <div class="msg-page-scroll">
 
-    <div class="mood-today">
-      <div class="mood-today-label">How are you today</div>
-      <div class="mood-emoji-row">
-        <button class="mood-emoji-btn" data-mood="✦">✦</button>
-        <button class="mood-emoji-btn" data-mood="◈">◈</button>
-        <button class="mood-emoji-btn" data-mood="◉">◉</button>
-        <button class="mood-emoji-btn" data-mood="◎">◎</button>
-        <button class="mood-emoji-btn" data-mood="◐">◐</button>
-      </div>
-      <textarea class="mood-note" id="mood-note-input" rows="2" placeholder="a note on today's persona…"></textarea>
-      <button class="mood-save-btn" id="mood-save">Record →</button>
+    <div class="msg-page-header">
+      <div class="msg-page-title">Messages</div>
+      <div class="msg-page-sub">your conversations</div>
     </div>
 
-    <div class="mood-log-title">Past Entries</div>
-    <div id="mood-log"></div>
+    <div class="msg-search-wrap">
+      <input class="msg-search" id="msg-search" type="text" placeholder="search…">
+    </div>
+
+    <div class="msg-list" id="msg-list">
+      <div class="msg-empty" id="msg-empty">
+        No conversations yet.<br>Like someone's card to start talking.
+      </div>
+    </div>
 
   </div>
 </div>
@@ -3153,10 +3126,10 @@ textarea.q-input { min-height: 60px; line-height: 1.6; }
     Archive
   </button>
   <button class="nav-btn" data-page="page-mood" id="nav-mood">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-      <path d="M12 21C12 21 4 14 4 9a8 8 0 0116 0c0 5-8 12-8 12z" stroke-linecap="round" stroke-linejoin="round"/>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
     </svg>
-    Mood
+    Messages
   </button>
   <button class="nav-btn" data-page="page-profile" id="nav-profile">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -3891,53 +3864,91 @@ document.getElementById('install-close').addEventListener('click', () => {
   if (daysEl) daysEl.textContent = days;
 })();
 
-/* ── MOOD LOG ── */
+/* ── MESSAGES PAGE ── */
 (function () {
-  const STORE = 'fv-mood-v1';
+  /* conversation store: { id, name, img, title, lastMsg, lastTime, unread, persona } */
+  const STORE = 'fv-convos-v1';
   const load  = () => { try { return JSON.parse(localStorage.getItem(STORE)) || []; } catch { return []; } };
-  let entries = load();
-  let selected = null;
+  const save  = (d) => { try { localStorage.setItem(STORE, JSON.stringify(d)); } catch {} };
 
-  const logEl   = document.getElementById('mood-log');
-  const noteEl  = document.getElementById('mood-note-input');
-  const saveBtn = document.getElementById('mood-save');
+  let convos = load();
 
-  /* emoji selection */
-  document.querySelectorAll('.mood-emoji-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.mood-emoji-btn').forEach(b => b.classList.remove('selected'));
-      btn.classList.add('selected');
-      selected = btn.dataset.mood;
-    });
-  });
+  const listEl  = document.getElementById('msg-list');
+  const emptyEl = document.getElementById('msg-empty');
+  const searchEl = document.getElementById('msg-search');
 
-  function renderLog() {
-    logEl.innerHTML = '';
-    [...entries].reverse().forEach(e => {
-      const el = document.createElement('div');
-      el.className = 'mood-entry';
-      el.innerHTML = `
-        <div class="mood-entry-emoji">${e.mood}</div>
-        <div class="mood-entry-body">
-          <div class="mood-entry-date">${e.date}</div>
-          <div class="mood-entry-note">${e.note || '—'}</div>
-        </div>`;
-      logEl.appendChild(el);
+  function timeLabel(ts) {
+    if (!ts) return '';
+    const diff = Date.now() - ts;
+    if (diff < 60000)  return 'now';
+    if (diff < 3600000) return Math.floor(diff/60000) + 'm';
+    if (diff < 86400000) return Math.floor(diff/3600000) + 'h';
+    return Math.floor(diff/86400000) + 'd';
+  }
+
+  function renderList(filter) {
+    const rows = listEl.querySelectorAll('.msg-row');
+    rows.forEach(r => r.remove());
+
+    let list = [...convos].sort((a,b) => (b.lastTime||0) - (a.lastTime||0));
+    if (filter) list = list.filter(c => c.name.toLowerCase().includes(filter.toLowerCase()));
+
+    emptyEl.style.display = list.length ? 'none' : '';
+
+    list.forEach(c => {
+      const row = document.createElement('div');
+      row.className = 'msg-row';
+      const initials = (c.name || '?')[0].toUpperCase();
+      row.innerHTML = `
+        <div class="msg-avatar">
+          ${c.img ? `<img src="${c.img}" alt="">` : initials}
+          <div class="msg-avatar-online"></div>
+        </div>
+        <div class="msg-info">
+          <div class="msg-name-row">
+            <span class="msg-name">${c.name}</span>
+            <span class="msg-time">${timeLabel(c.lastTime)}</span>
+          </div>
+          <div class="msg-preview ${c.unread ? 'unread' : ''}">${c.lastMsg || '—'}</div>
+        </div>
+        ${c.unread ? '<div class="msg-unread-dot"></div>' : ''}
+      `;
+      row.addEventListener('click', () => {
+        c.unread = false;
+        save(convos);
+        renderList(searchEl ? searchEl.value : '');
+        if (c.persona && window.openChat) window.openChat(c.persona);
+      });
+      listEl.appendChild(row);
     });
   }
-  renderLog();
 
-  saveBtn.addEventListener('click', () => {
-    if (!selected) return;
-    const now = new Date();
-    const date = now.toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' });
-    entries.push({ mood: selected, note: noteEl.value.trim(), date });
-    localStorage.setItem(STORE, JSON.stringify(entries));
-    noteEl.value = '';
-    selected = null;
-    document.querySelectorAll('.mood-emoji-btn').forEach(b => b.classList.remove('selected'));
-    renderLog();
-  });
+  renderList();
+
+  if (searchEl) {
+    searchEl.addEventListener('input', () => renderList(searchEl.value));
+  }
+
+  /* called from openChat to register / update a conversation */
+  window.registerConvo = function(persona) {
+    const id = persona.label || persona.name;
+    let c = convos.find(x => x.id === id);
+    if (!c) {
+      c = { id, name: persona.label || persona.name, img: persona.img || '',
+            title: persona.title || '', lastMsg: '', lastTime: Date.now(),
+            unread: false, persona };
+      convos.unshift(c);
+    }
+    c.persona = persona;
+    save(convos);
+    renderList();
+  };
+
+  /* called from chat to update last message */
+  window.updateConvoLastMsg = function(personaLabel, msg) {
+    const c = convos.find(x => x.id === personaLabel);
+    if (c) { c.lastMsg = msg; c.lastTime = Date.now(); save(convos); renderList(); }
+  };
 })();
 
 /* ── PERSONA DETAIL OVERLAY ── */
@@ -4063,6 +4074,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     chatOverlay.classList.remove('hidden');
     chatInput.focus();
+
+    if (window.registerConvo) window.registerConvo(p);
   }
 
   function closeChat() {
@@ -4136,6 +4149,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!text) return;
     addBubble('mine', text);
     chatInput.value = '';
+    if (chatPersona && window.updateConvoLastMsg) {
+      window.updateConvoLastMsg(chatPersona.label || chatPersona.name, text);
+    }
     setTimeout(sendReply, 400 + Math.random() * 300);
   }
 
