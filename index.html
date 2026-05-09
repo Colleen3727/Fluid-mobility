@@ -223,7 +223,7 @@ function initGlobe(users) {
   if (!canvas) return;
 
   const parent = canvas.parentElement;
-  const size   = Math.min(parent.offsetWidth * 0.98, 380);
+  const size   = Math.min(parent.offsetWidth * 1.0, 440);
   canvas.width  = size * 2;   /* hi-dpi */
   canvas.height = size * 2;
   canvas.style.width  = size + 'px';
@@ -578,6 +578,20 @@ document.querySelectorAll('.globe-tab').forEach(btn => {
     renderList(currentTab);
   });
 });
+
+/* ── globe view toggle: Globe ↔ Dots ── */
+(function() {
+  const btn    = document.getElementById('globe-view-toggle');
+  const canvas = document.getElementById('globe-canvas');
+  if (!btn || !canvas) return;
+  let dotsOnly = false;
+  btn.addEventListener('click', () => {
+    dotsOnly = !dotsOnly;
+    canvas.classList.toggle('dots-only', dotsOnly);
+    btn.classList.toggle('dots-only', dotsOnly);
+    btn.textContent = dotsOnly ? 'Dots' : 'Globe';
+  });
+})();
 
 /* ── boot ── */
 (async () => {
@@ -1242,6 +1256,7 @@ textarea.q-input { min-height: 60px; line-height: 1.6; }
   object-fit: cover;
   object-position: top center;
   display: block;
+  filter: saturate(0.72);
 }
 
 /* gradient overlay — bottom heavy */
@@ -1250,10 +1265,10 @@ textarea.q-input { min-height: 60px; line-height: 1.6; }
   inset: 0;
   background: linear-gradient(
     to bottom,
-    rgba(0,0,0,0)    30%,
-    rgba(0,0,0,0.25) 52%,
-    rgba(0,0,0,0.72) 75%,
-    rgba(0,0,0,0.88) 100%
+    rgba(0,0,0,0)    35%,
+    rgba(0,0,0,0.15) 55%,
+    rgba(0,0,0,0.48) 78%,
+    rgba(0,0,0,0.62) 100%
   );
 }
 
@@ -1860,6 +1875,21 @@ textarea.q-input { min-height: 60px; line-height: 1.6; }
   color: var(--teal-dark);
   opacity: 0.6;
 }
+.globe-view-toggle {
+  font-family: 'Courier Prime', monospace;
+  font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--teal); border: 1px solid rgba(106,173,174,0.4);
+  background: rgba(106,173,174,0.08); border-radius: 20px;
+  padding: 4px 10px; cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+.globe-view-toggle.dots-only {
+  background: var(--teal); color: #fff; border-color: var(--teal);
+}
+/* when dots-only mode: canvas fades to near-invisible, dots still drawn */
+#globe-canvas.dots-only {
+  opacity: 0.06;
+}
 
 .globe-stage {
   position: relative;
@@ -1868,7 +1898,7 @@ textarea.q-input { min-height: 60px; line-height: 1.6; }
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 6px 0 2px;
+  padding: 0 0 0;
   z-index: 1;
 }
 #globe-canvas {
@@ -1892,7 +1922,7 @@ textarea.q-input { min-height: 60px; line-height: 1.6; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 20px 8px;
+  padding: 20px 20px 8px;
   flex-shrink: 0;
 }
 #globe-list-title {
@@ -3054,7 +3084,7 @@ textarea.q-input { min-height: 60px; line-height: 1.6; }
       <span id="globe-count">0</span>
       <span class="globe-online-label">online now</span>
     </div>
-    <div class="globe-title">Fair Vanity · World</div>
+    <button class="globe-view-toggle" id="globe-view-toggle">Globe</button>
   </div>
 
   <!-- 3-D globe canvas -->
