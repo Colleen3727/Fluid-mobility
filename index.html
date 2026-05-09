@@ -1406,7 +1406,7 @@ textarea.q-input { min-height: 60px; line-height: 1.6; }
 .profile-hero {
   position: relative;
   width: 100%;
-  height: 200px;
+  height: 140px;
   background: linear-gradient(160deg, #c2bdb0 0%, #8fa8a8 100%);
   flex-shrink: 0;
 }
@@ -1430,11 +1430,11 @@ textarea.q-input { min-height: 60px; line-height: 1.6; }
 /* ── identity strip (avatar + name row) ── */
 .profile-identity {
   position: relative;
-  padding: 0 20px 0;
-  margin-top: -28px;
+  padding: 0 20px;
+  margin-top: 12px;
   z-index: 2;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: 14px;
 }
 .profile-avatar-wrap {
@@ -1482,8 +1482,9 @@ textarea.q-input { min-height: 60px; line-height: 1.6; }
 
 /* ── status pill ── */
 .profile-status-row {
-  padding: 10px 20px 0;
+  padding: 8px 20px 12px;
   display: flex; align-items: center; gap: 6px;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
 }
 .profile-status-dot {
   width: 7px; height: 7px; border-radius: 50%;
