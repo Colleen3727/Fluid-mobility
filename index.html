@@ -4064,14 +4064,15 @@ document.addEventListener('DOMContentLoaded', () => {
   let typingEl    = null;
 
   function openChat(p) {
+    if (!p) return;
     chatPersona = p;
     replyIdx = 0;
     chatMsgs.innerHTML = '';
     closePersona();
 
     /* header */
-    document.getElementById('chat-header-name').textContent = p.label;
-    document.getElementById('chat-header-sub').textContent  = p.title;
+    document.getElementById('chat-header-name').textContent = p.label || p.name || '';
+    document.getElementById('chat-header-sub').textContent  = p.title || '';
     const av = document.getElementById('chat-avatar');
     av.innerHTML = p.img
       ? `<img src="${p.img}" alt="${p.label}">`
@@ -4105,7 +4106,8 @@ document.addEventListener('DOMContentLoaded', () => {
       `I don't do small talk. But I'll make an exception.`,
       `You have taste. Let's see if you have something to say.`,
     ];
-    return greetings[Math.abs(p.label.length + p.title.length) % greetings.length];
+    const key = (p.label || p.name || '').length + (p.title || '').length;
+    return greetings[Math.abs(key) % greetings.length];
   }
 
   function addDateDivider(text) {
