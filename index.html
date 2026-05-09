@@ -737,11 +737,14 @@ html, body {
 .ob-wrap {
   width: min(100%, 520px);
   height: 100%;
+  max-height: 100%;
   display: flex;
   flex-direction: column;
-  padding: 56px 28px 40px;
+  padding: 56px 28px 0;
   gap: 0;
+  overflow: hidden;
 }
+
 
 /* progress bar */
 .ob-progress-row {
@@ -778,6 +781,8 @@ html, body {
   display: none;
   flex-direction: column;
   flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 .ob-step.active { display: flex; }
 
@@ -923,9 +928,10 @@ html, body {
 
 /* next / finish button */
 .ob-next {
-  margin-top: auto;
+  flex-shrink: 0;
   width: 100%;
   padding: 16px;
+  margin: 16px 0 24px;
   background: var(--teal);
   color: #fff;
   border: none;
@@ -936,7 +942,6 @@ html, body {
   text-transform: uppercase;
   cursor: pointer;
   transition: opacity 0.2s, transform 0.15s;
-  margin-top: 28px;
 }
 .ob-next:active { opacity: 0.78; transform: scale(0.98); }
 .ob-next:disabled { opacity: 0.35; pointer-events: none; }
