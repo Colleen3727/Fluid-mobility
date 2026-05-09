@@ -3287,7 +3287,10 @@ function shuffle(arr) {
         if (btn.dataset.action === 'like') {
           openPersona(p);
         } else {
-          targetAngle = snapAngle(cylAngle - ANGLE);
+          /* always advance exactly one card forward */
+          const cur = frontSlot();
+          const next = (cur + 1) % N;
+          targetAngle = -(next * ANGLE);
         }
       });
     });
