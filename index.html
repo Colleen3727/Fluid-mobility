@@ -132,6 +132,15 @@ window.fbSendMessage = function(otherUid, text) {
   push(ref(db, 'messages/' + cid), { from: myUid, text, ts: serverTimestamp() });
 };
 
+/* push pre-encoded media (base64) to Firebase */
+window.fbPushMedia = function(otherUid, mediaData, mediaType) {
+  const myUid = window._fvMyUid;
+  if (!myUid || !otherUid) return;
+  const cid = chatId(myUid, otherUid);
+  push(ref(db, 'messages/' + cid), { from: myUid, media: mediaData, mediaType, ts: serverTimestamp() })
+    .catch(() => {}); /* silent fail — already shown locally */
+};
+
 /* compress image to base64 and send as message */
 window.fbSendFile = function(otherUid, file, onProgress, onDone, onError) {
   const myUid = window._fvMyUid;
@@ -4327,26 +4336,54 @@ document.addEventListener('DOMContentLoaded', function () {
     chatFileInput.value = '';
     if (!file || !chatPersona) return;
 
-    if (chatPersona.uid && window.fbSendFile && window._fvMyUid) {
-      /* real user — upload to Firebase Storage */
-      const progEl = document.createElement('div');
-      progEl.className = 'chat-upload-progress';
-      progEl.textContent = 'Uploading… 0%';
-      chatMsgs.appendChild(progEl);
-      chatMsgs.scrollTop = chatMsgs.scrollHeight;
+    /* compress + show locally immediately, then push to Firebase if real user */
+    const isVideo = file.type.startsWith('video');
+    const type    = isVideo ? 'video' : 'image';
 
-      window.fbSendFile(chatPersona.uid, file,
-        pct => { progEl.textContent = `Sending… ${pct}%`; },
-        ()  => { progEl.remove(); },
-        (e) => { progEl.textContent = e === 'too large' ? 'File too large (max 8MB video / 3MB image).' : 'Send failed.'; setTimeout(() => progEl.remove(), 3000); }
-      );
-    } else {
-      /* fake user — show locally with object URL */
-      const url = URL.createObjectURL(file);
-      const type = file.type.startsWith('video') ? 'video' : 'image';
-      addBubble('mine', '', Date.now(), url, type);
-      setTimeout(sendAiReply, 600);
+    if (isVideo) {
+      /* videos: show with blob URL locally only (too large for DB) */
+      const blobUrl = URL.createObjectURL(file);
+      addBubble('mine', '', Date.now(), blobUrl, 'video');
+      if (!chatPersona.uid) setTimeout(sendAiReply, 600);
+      return;
     }
+
+    /* images: compress then show + optionally push to DB */
+    const progEl = document.createElement('div');
+    progEl.className = 'chat-upload-progress';
+    progEl.textContent = 'Compressing…';
+    chatMsgs.appendChild(progEl);
+    chatMsgs.scrollTop = chatMsgs.scrollHeight;
+
+    const MAX_PX = 900, QUALITY = 0.70;
+    const img = new Image();
+    const objUrl = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(objUrl);
+      let w = img.naturalWidth, h = img.naturalHeight;
+      if (w > MAX_PX || h > MAX_PX) {
+        if (w > h) { h = Math.round(h * MAX_PX / w); w = MAX_PX; }
+        else       { w = Math.round(w * MAX_PX / h); h = MAX_PX; }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      const b64 = canvas.toDataURL('image/jpeg', QUALITY);
+      progEl.remove();
+
+      /* show locally for sender immediately */
+      addBubble('mine', '', Date.now(), b64, 'image');
+      if (window.updateConvoLastMsg) window.updateConvoLastMsg(chatPersona.uid || chatPersona.label || chatPersona.name, '📷 Photo');
+
+      /* push to Firebase for real users via exposed function */
+      if (chatPersona.uid && window._fvMyUid && window.fbPushMedia) {
+        window.fbPushMedia(chatPersona.uid, b64, 'image');
+      } else if (!chatPersona.uid) {
+        setTimeout(sendAiReply, 600);
+      }
+    };
+    img.onerror = () => { progEl.textContent = 'Could not load image.'; setTimeout(() => progEl.remove(), 2000); };
+    img.src = objUrl;
   });
 
   /* ── inbox listener: unread badge on Messages nav tab ── */
