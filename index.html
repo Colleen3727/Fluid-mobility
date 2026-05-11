@@ -337,7 +337,8 @@ function initGlobe(users) {
   if (!canvas) return;
 
   const parent = canvas.parentElement;
-  const size   = Math.min(parent.offsetWidth * 1.0, 440);
+  const maxH   = Math.floor(window.innerHeight * 0.38);
+  const size   = Math.min(parent.offsetWidth * 0.88, maxH, 380);
   canvas.width  = size * 2;   /* hi-dpi */
   canvas.height = size * 2;
   canvas.style.width  = size + 'px';
@@ -1980,20 +1981,20 @@ textarea.q-input { min-height: 60px; line-height: 1.6; }
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 12px 16px 0;
+  padding: 14px 24px 10px;
   flex-shrink: 0;
   position: relative;
   z-index: 2;
 }
 .explore-tab {
   flex: 1;
-  max-width: 160px;
-  padding: 8px 0;
+  max-width: 140px;
+  padding: 6px 0;
   border: none;
-  border-radius: 20px;
+  border-radius: 16px;
   background: rgba(106,173,174,0.08);
   font-family: 'Viaoda Libre', serif;
-  font-size: 12px;
+  font-size: 11px;
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--ink-faint);
@@ -2018,7 +2019,7 @@ textarea.q-input { min-height: 60px; line-height: 1.6; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 52px 22px 10px;
+  padding: 10px 22px 10px;
   flex-shrink: 0;
   z-index: 2;
 }
@@ -2081,8 +2082,10 @@ textarea.q-input { min-height: 60px; line-height: 1.6; }
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0 0 0;
+  padding: 0;
   z-index: 1;
+  max-height: 38vh;
+  overflow: hidden;
 }
 #globe-canvas {
   display: block;
@@ -2105,7 +2108,7 @@ textarea.q-input { min-height: 60px; line-height: 1.6; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 20px 20px 8px;
+  padding: 12px 20px 8px;
   flex-shrink: 0;
 }
 #globe-list-title {
