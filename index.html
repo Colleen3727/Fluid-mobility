@@ -3434,7 +3434,9 @@ function goTo(id, direction = 'up') {
     if (b.dataset.page === id && pill && navBar) {
       const barRect = navBar.getBoundingClientRect();
       const btnRect = b.getBoundingClientRect();
-      pill.style.left = (btnRect.left - barRect.left) + 'px';
+      const pillW = pill.offsetWidth;
+      const btnCx = btnRect.left - barRect.left + btnRect.width / 2;
+      pill.style.left = (btnCx - pillW / 2) + 'px';
     }
   });
 }
@@ -3447,8 +3449,10 @@ function initNavPill() {
   const barRect = navBar.getBoundingClientRect();
   const btnRect = active.getBoundingClientRect();
   /* set without transition on first load */
+  const pillW = pill.offsetWidth;
+  const btnCx = btnRect.left - barRect.left + btnRect.width / 2;
   pill.style.transition = 'none';
-  pill.style.left = (btnRect.left - barRect.left) + 'px';
+  pill.style.left = (btnCx - pillW / 2) + 'px';
   requestAnimationFrame(() => { pill.style.transition = ''; });
 }
 
