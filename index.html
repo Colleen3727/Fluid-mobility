@@ -2668,54 +2668,8 @@ textarea.q-input { min-height: 60px; line-height: 1.6; }
 <div class="page hidden" id="page-onboarding">
   <div class="ob-wrap">
 
-    <!-- progress -->
-    <div class="ob-progress-row">
-      <div class="ob-progress-bar"><div class="ob-progress-fill" id="ob-fill" style="width:25%"></div></div>
-      <div class="ob-step-label" id="ob-step-label">1 / 4</div>
-    </div>
-
-    <!-- STEP 1 — nickname -->
+    <!-- STEP 1 — birthday -->
     <div class="ob-step active" id="ob-step-1">
-      <div class="ob-eyebrow">Welcome</div>
-      <div class="ob-title">What shall we<br>call you?</div>
-      <div class="ob-sub">Choose a name that feels like you — or something entirely invented.</div>
-      <input class="ob-input" id="ob-nickname" type="text" placeholder="Your name or alias…" maxlength="32" autocomplete="off">
-      <button class="ob-next" id="ob-next-1">Continue →</button>
-    </div>
-
-    <!-- STEP 2 — pronouns -->
-    <div class="ob-step" id="ob-step-2">
-      <div class="ob-eyebrow">Identity</div>
-      <div class="ob-title">Your pronouns</div>
-      <div class="ob-sub">Select all that apply, or skip.</div>
-      <div class="ob-pronoun-grid" id="ob-pronouns">
-        <span class="ob-pronoun" data-p="she/her">she / her</span>
-        <span class="ob-pronoun" data-p="he/him">he / him</span>
-        <span class="ob-pronoun" data-p="they/them">they / them</span>
-        <span class="ob-pronoun" data-p="she/they">she / they</span>
-        <span class="ob-pronoun" data-p="he/they">he / they</span>
-        <span class="ob-pronoun" data-p="xe/xem">xe / xem</span>
-        <span class="ob-pronoun" data-p="ze/hir">ze / hir</span>
-        <span class="ob-pronoun" data-p="ey/em">ey / em</span>
-        <span class="ob-pronoun" data-p="fae/faer">fae / faer</span>
-        <span class="ob-pronoun" data-p="ve/ver">ve / ver</span>
-        <span class="ob-pronoun" data-p="per/per">per / per</span>
-        <span class="ob-pronoun" data-p="il/lui">il / lui</span>
-        <span class="ob-pronoun" data-p="elle">elle</span>
-        <span class="ob-pronoun" data-p="él/él">él / él</span>
-        <span class="ob-pronoun" data-p="elles/ils">elles / ils</span>
-        <span class="ob-pronoun" data-p="lui/lei">lui / lei</span>
-        <span class="ob-pronoun" data-p="er/ihm">er / ihm</span>
-        <span class="ob-pronoun" data-p="sie/ihr">sie / ihr</span>
-        <span class="ob-pronoun" data-p="彼/他">彼 / 他</span>
-        <span class="ob-pronoun" data-p="彼女/她">彼女 / 她</span>
-        <span class="ob-pronoun" data-p="any">any / all</span>
-      </div>
-      <button class="ob-next" id="ob-next-2">Continue →</button>
-    </div>
-
-    <!-- STEP 3 — birthday -->
-    <div class="ob-step" id="ob-step-3">
       <div class="ob-eyebrow">A little about you</div>
       <div class="ob-title">When were<br>you born?</div>
       <div class="ob-sub">Used only to personalise your experience. Never shown publicly.</div>
@@ -2726,70 +2680,7 @@ textarea.q-input { min-height: 60px; line-height: 1.6; }
         <span class="ob-bday-sep">/</span>
         <input class="ob-bday-part" id="ob-bday-y" type="number" min="1900" max="2099" placeholder="YYYY" style="flex:1.6">
       </div>
-      <button class="ob-next" id="ob-next-3">Continue →</button>
-    </div>
-
-    <!-- STEP 4 — tags -->
-    <div class="ob-step" id="ob-step-4">
-      <div class="ob-eyebrow">Your world</div>
-      <div class="ob-title">Pick what<br>fits you</div>
-      <div class="ob-sub">Choose as many as feel true.</div>
-
-      <div style="flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch; padding-right:2px;">
-
-        <div class="ob-tags-section">
-          <div class="ob-tags-label">Skills &amp; Craft</div>
-          <div class="ob-tags-grid">
-            <span class="ob-tag teal" data-tag="Photography">Photography</span>
-            <span class="ob-tag teal" data-tag="Fashion Design">Fashion Design</span>
-            <span class="ob-tag teal" data-tag="Writing">Writing</span>
-            <span class="ob-tag teal" data-tag="Music">Music</span>
-            <span class="ob-tag teal" data-tag="Painting">Painting</span>
-            <span class="ob-tag teal" data-tag="Film">Film</span>
-            <span class="ob-tag teal" data-tag="Architecture">Architecture</span>
-            <span class="ob-tag teal" data-tag="Curation">Curation</span>
-            <span class="ob-tag teal" data-tag="Styling">Styling</span>
-            <span class="ob-tag teal" data-tag="Ceramics">Ceramics</span>
-            <span class="ob-tag teal" data-tag="Jewellery">Jewellery</span>
-            <span class="ob-tag teal" data-tag="Illustration">Illustration</span>
-          </div>
-        </div>
-
-        <div class="ob-tags-section">
-          <div class="ob-tags-label">Interests</div>
-          <div class="ob-tags-grid">
-            <span class="ob-tag plum" data-tag="Archive Culture">Archive Culture</span>
-            <span class="ob-tag plum" data-tag="Vintage">Vintage</span>
-            <span class="ob-tag plum" data-tag="Philosophy">Philosophy</span>
-            <span class="ob-tag plum" data-tag="Travel">Travel</span>
-            <span class="ob-tag plum" data-tag="Food">Food</span>
-            <span class="ob-tag plum" data-tag="Literature">Literature</span>
-            <span class="ob-tag plum" data-tag="Theatre">Theatre</span>
-            <span class="ob-tag plum" data-tag="Dance">Dance</span>
-            <span class="ob-tag plum" data-tag="Subculture">Subculture</span>
-            <span class="ob-tag plum" data-tag="Ritual">Ritual</span>
-            <span class="ob-tag plum" data-tag="Identity">Identity</span>
-            <span class="ob-tag plum" data-tag="Nature">Nature</span>
-          </div>
-        </div>
-
-        <div class="ob-tags-section">
-          <div class="ob-tags-label">Social Wishes</div>
-          <div class="ob-tags-grid">
-            <span class="ob-tag sand" data-tag="Collaborate">Collaborate</span>
-            <span class="ob-tag sand" data-tag="Inspire & Be Inspired">Inspire &amp; Be Inspired</span>
-            <span class="ob-tag sand" data-tag="Find Community">Find Community</span>
-            <span class="ob-tag sand" data-tag="Exchange Ideas">Exchange Ideas</span>
-            <span class="ob-tag sand" data-tag="Make Friends">Make Friends</span>
-            <span class="ob-tag sand" data-tag="Show My Work">Show My Work</span>
-            <span class="ob-tag sand" data-tag="Learn from Others">Learn from Others</span>
-            <span class="ob-tag sand" data-tag="Just Explore">Just Explore</span>
-          </div>
-        </div>
-
-      </div>
-
-      <button class="ob-next" id="ob-next-4">Enter Fair Vanity →</button>
+      <button class="ob-next" id="ob-next-1">Continue →</button>
     </div>
 
   </div>
@@ -2816,6 +2707,59 @@ textarea.q-input { min-height: 60px; line-height: 1.6; }
       <p class="question-number">03 / 03</p>
       <p class="question-label">Do you wanna have more FUN</p>
       <textarea class="q-input" id="q-answer-3" rows="3" placeholder="your answer…"></textarea>
+    </div>
+
+    <!-- TAGS — after the three questions -->
+    <div class="question-block">
+      <p class="question-number">— / —</p>
+      <p class="question-label">Pick what fits you</p>
+      <div class="ob-tags-section">
+        <div class="ob-tags-label">Skills &amp; Craft</div>
+        <div class="ob-tags-grid">
+          <span class="ob-tag teal" data-tag="Photography">Photography</span>
+          <span class="ob-tag teal" data-tag="Fashion Design">Fashion Design</span>
+          <span class="ob-tag teal" data-tag="Writing">Writing</span>
+          <span class="ob-tag teal" data-tag="Music">Music</span>
+          <span class="ob-tag teal" data-tag="Painting">Painting</span>
+          <span class="ob-tag teal" data-tag="Film">Film</span>
+          <span class="ob-tag teal" data-tag="Architecture">Architecture</span>
+          <span class="ob-tag teal" data-tag="Curation">Curation</span>
+          <span class="ob-tag teal" data-tag="Styling">Styling</span>
+          <span class="ob-tag teal" data-tag="Ceramics">Ceramics</span>
+          <span class="ob-tag teal" data-tag="Jewellery">Jewellery</span>
+          <span class="ob-tag teal" data-tag="Illustration">Illustration</span>
+        </div>
+      </div>
+      <div class="ob-tags-section">
+        <div class="ob-tags-label">Interests</div>
+        <div class="ob-tags-grid">
+          <span class="ob-tag plum" data-tag="Archive Culture">Archive Culture</span>
+          <span class="ob-tag plum" data-tag="Vintage">Vintage</span>
+          <span class="ob-tag plum" data-tag="Philosophy">Philosophy</span>
+          <span class="ob-tag plum" data-tag="Travel">Travel</span>
+          <span class="ob-tag plum" data-tag="Food">Food</span>
+          <span class="ob-tag plum" data-tag="Literature">Literature</span>
+          <span class="ob-tag plum" data-tag="Theatre">Theatre</span>
+          <span class="ob-tag plum" data-tag="Dance">Dance</span>
+          <span class="ob-tag plum" data-tag="Subculture">Subculture</span>
+          <span class="ob-tag plum" data-tag="Ritual">Ritual</span>
+          <span class="ob-tag plum" data-tag="Identity">Identity</span>
+          <span class="ob-tag plum" data-tag="Nature">Nature</span>
+        </div>
+      </div>
+      <div class="ob-tags-section">
+        <div class="ob-tags-label">Social Wishes</div>
+        <div class="ob-tags-grid">
+          <span class="ob-tag sand" data-tag="Collaborate">Collaborate</span>
+          <span class="ob-tag sand" data-tag="Inspire & Be Inspired">Inspire &amp; Be Inspired</span>
+          <span class="ob-tag sand" data-tag="Find Community">Find Community</span>
+          <span class="ob-tag sand" data-tag="Exchange Ideas">Exchange Ideas</span>
+          <span class="ob-tag sand" data-tag="Make Friends">Make Friends</span>
+          <span class="ob-tag sand" data-tag="Show My Work">Show My Work</span>
+          <span class="ob-tag sand" data-tag="Learn from Others">Learn from Others</span>
+          <span class="ob-tag sand" data-tag="Just Explore">Just Explore</span>
+        </div>
+      </div>
     </div>
 
     <div class="q-submit-wrap">
@@ -3553,35 +3497,6 @@ const ticker = setInterval(() => {
 
 /* ── ONBOARDING ── */
 (function () {
-  const TOTAL = 4;
-  const fill  = document.getElementById('ob-fill');
-  const label = document.getElementById('ob-step-label');
-
-  function setStep(n) {
-    document.querySelectorAll('.ob-step').forEach(s => s.classList.remove('active'));
-    document.getElementById('ob-step-' + n).classList.add('active');
-    fill.style.width  = (n / TOTAL * 100) + '%';
-    label.textContent = n + ' / ' + TOTAL;
-  }
-
-  /* Step 1 — nickname */
-  const nickInput = document.getElementById('ob-nickname');
-  document.getElementById('ob-next-1').addEventListener('click', () => {
-    if (!nickInput.value.trim()) { nickInput.focus(); return; }
-    setStep(2);
-  });
-  nickInput.addEventListener('keydown', e => {
-    if (e.key === 'Enter') document.getElementById('ob-next-1').click();
-  });
-
-  /* Step 2 — pronouns (multi-select, optional) */
-  document.getElementById('ob-pronouns').addEventListener('click', e => {
-    const chip = e.target.closest('.ob-pronoun');
-    if (chip) chip.classList.toggle('selected');
-  });
-  document.getElementById('ob-next-2').addEventListener('click', () => setStep(3));
-
-  /* Step 3 — birthday */
   const bdD = document.getElementById('ob-bday-d');
   const bdM = document.getElementById('ob-bday-m');
   const bdY = document.getElementById('ob-bday-y');
@@ -3590,46 +3505,33 @@ const ticker = setInterval(() => {
   bdD.addEventListener('input', () => { if (bdD.value.length >= 2) bdM.focus(); });
   bdM.addEventListener('input', () => { if (bdM.value.length >= 2) bdY.focus(); });
 
-  document.getElementById('ob-next-3').addEventListener('click', () => {
-    /* birthday optional — just skip if empty */
-    setStep(4);
-  });
-
-  /* Step 4 — tags (multi-select) */
-  document.getElementById('page-onboarding').addEventListener('click', e => {
-    const tag = e.target.closest('.ob-tag');
-    if (tag) tag.classList.toggle('selected');
-  });
-
-  document.getElementById('ob-next-4').addEventListener('click', () => {
-    /* save to localStorage */
+  document.getElementById('ob-next-1').addEventListener('click', () => {
+    /* save birthday (optional) and go to questions */
     const profile = {
-      nickname: nickInput.value.trim(),
-      pronouns: [...document.querySelectorAll('.ob-pronoun.selected')].map(c => c.dataset.p),
+      nickname: '',
+      pronouns: [],
       birthday: { d: bdD.value, m: bdM.value, y: bdY.value },
-      tags:     [...document.querySelectorAll('.ob-tag.selected')].map(c => c.dataset.tag),
+      tags: [],
     };
     try { localStorage.setItem('fv-onboarding', JSON.stringify(profile)); } catch(e) {}
-
-    /* update profile name if set */
-    if (profile.nickname) {
-      const ni = document.getElementById('profile-name');
-      if (ni) ni.value = profile.nickname;
-      const ph = document.getElementById('profile-handle');
-      if (ph) ph.textContent = '@' + profile.nickname.toLowerCase().replace(/\s+/g,'');
-    }
-
     goTo('page-questions');
   });
 })();
 
 /* ── SUBMIT → save answers + show app ── */
+/* tag selection in questions page */
+document.getElementById('page-questions').addEventListener('click', e => {
+  const tag = e.target.closest('.ob-tag');
+  if (tag) tag.classList.toggle('selected');
+});
+
 document.getElementById('btn-submit').addEventListener('click', () => {
   try {
     const ob = JSON.parse(localStorage.getItem('fv-onboarding')) || {};
-    ob.q1 = (document.getElementById('q-answer-1').value || '').trim();
-    ob.q2 = (document.getElementById('q-answer-2').value || '').trim();
-    ob.q3 = (document.getElementById('q-answer-3').value || '').trim();
+    ob.q1   = (document.getElementById('q-answer-1').value || '').trim();
+    ob.q2   = (document.getElementById('q-answer-2').value || '').trim();
+    ob.q3   = (document.getElementById('q-answer-3').value || '').trim();
+    ob.tags = [...document.querySelectorAll('#page-questions .ob-tag.selected')].map(t => t.dataset.tag);
     localStorage.setItem('fv-onboarding', JSON.stringify(ob));
   } catch(e) {}
   goTo('page-home');
