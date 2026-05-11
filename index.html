@@ -3929,7 +3929,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 /* ── CHAT OVERLAY ── */
-(function () {
+document.addEventListener('DOMContentLoaded', function () {
   const chatOverlay = document.getElementById('chat-overlay');
   const chatBack    = document.getElementById('chat-back');
   const chatMsgs    = document.getElementById('chat-messages');
@@ -4063,7 +4063,7 @@ document.addEventListener('DOMContentLoaded', () => {
   chatInput.addEventListener('keydown', e => {
     if (e.key === 'Enter') sendMessage();
   });
-})();
+});
 
 
 /* ── SERVICE WORKER ── */
