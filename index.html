@@ -2665,26 +2665,6 @@ textarea.q-input { min-height: 60px; line-height: 1.6; }
 </div>
 
 <!-- ══════════════════════ ONBOARDING ══════════════════════ -->
-<div class="page hidden" id="page-onboarding">
-  <div class="ob-wrap">
-
-    <!-- STEP 1 — birthday -->
-    <div class="ob-step active" id="ob-step-1">
-      <div class="ob-eyebrow">A little about you</div>
-      <div class="ob-title">When were<br>you born?</div>
-      <div class="ob-sub">Used only to personalise your experience. Never shown publicly.</div>
-      <div class="ob-bday-row">
-        <input class="ob-bday-part" id="ob-bday-d" type="number" min="1" max="31" placeholder="DD" maxlength="2">
-        <span class="ob-bday-sep">/</span>
-        <input class="ob-bday-part" id="ob-bday-m" type="number" min="1" max="12" placeholder="MM" maxlength="2">
-        <span class="ob-bday-sep">/</span>
-        <input class="ob-bday-part" id="ob-bday-y" type="number" min="1900" max="2099" placeholder="YYYY" style="flex:1.6">
-      </div>
-      <button class="ob-next" id="ob-next-1">Continue →</button>
-    </div>
-
-  </div>
-</div>
 
 <!-- ══════════════════════ PAGE 2: QUESTIONS ══════════════════════ -->
 <div class="page hidden" id="page-questions">
@@ -3495,32 +3475,10 @@ const ticker = setInterval(() => {
   drawLoaderArc(count / 100);
   if (count >= 100) {
     clearInterval(ticker);
-    setTimeout(() => goTo('page-onboarding'), 500);
+    setTimeout(() => goTo('page-questions'), 500);
   }
 }, 32);
 
-/* ── ONBOARDING ── */
-(function () {
-  const bdD = document.getElementById('ob-bday-d');
-  const bdM = document.getElementById('ob-bday-m');
-  const bdY = document.getElementById('ob-bday-y');
-
-  /* auto-advance on fill */
-  bdD.addEventListener('input', () => { if (bdD.value.length >= 2) bdM.focus(); });
-  bdM.addEventListener('input', () => { if (bdM.value.length >= 2) bdY.focus(); });
-
-  document.getElementById('ob-next-1').addEventListener('click', () => {
-    /* save birthday (optional) and go to questions */
-    const profile = {
-      nickname: '',
-      pronouns: [],
-      birthday: { d: bdD.value, m: bdM.value, y: bdY.value },
-      tags: [],
-    };
-    try { localStorage.setItem('fv-onboarding', JSON.stringify(profile)); } catch(e) {}
-    goTo('page-questions');
-  });
-})();
 
 /* ── SUBMIT → save answers + show app ── */
 /* tag selection in questions page */
