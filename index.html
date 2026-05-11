@@ -4210,6 +4210,7 @@ document.addEventListener('DOMContentLoaded', function () {
     bubble.addEventListener('pointerup',    () => clearTimeout(longPressTimer));
     bubble.addEventListener('pointerleave', () => clearTimeout(longPressTimer));
     bubble.addEventListener('pointermove',  () => clearTimeout(longPressTimer));
+    bubble.addEventListener('dblclick',     e => { e.preventDefault(); if (navigator.vibrate) navigator.vibrate(20); showPicker(wrap, e.clientX, e.clientY); });
     bubble.addEventListener('contextmenu',  e => { e.preventDefault(); showPicker(wrap, e.clientX, e.clientY); });
 
     chatMsgs.appendChild(wrap);
