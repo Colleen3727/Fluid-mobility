@@ -682,7 +682,27 @@ function renderList(tab) {
   });
 }
 
-/* ── tab buttons ── */
+/* ── explore top tabs: Discover ↔ Archive ── */
+(function() {
+  const tabGlobe  = document.getElementById('etab-globe');
+  const tabCards  = document.getElementById('etab-cards');
+  const panelGlobe = document.getElementById('epanel-globe');
+  const panelCards = document.getElementById('epanel-cards');
+  if (!tabGlobe || !tabCards) return;
+
+  function switchTo(tab) {
+    const isGlobe = tab === 'globe';
+    tabGlobe.classList.toggle('active', isGlobe);
+    tabCards.classList.toggle('active', !isGlobe);
+    panelGlobe.classList.toggle('hidden', !isGlobe);
+    panelCards.classList.toggle('hidden', isGlobe);
+  }
+
+  tabGlobe.addEventListener('click', () => switchTo('globe'));
+  tabCards.addEventListener('click', () => switchTo('cards'));
+})();
+
+/* ── globe-list tab buttons ── */
 document.querySelectorAll('.globe-tab').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.globe-tab').forEach(b => b.classList.remove('active'));
@@ -1954,6 +1974,45 @@ textarea.q-input { min-height: 60px; line-height: 1.6; }
   gap: 0;
 }
 
+/* ── explore tab switcher ── */
+.explore-tab-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 12px 16px 0;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 2;
+}
+.explore-tab {
+  flex: 1;
+  max-width: 160px;
+  padding: 8px 0;
+  border: none;
+  border-radius: 20px;
+  background: rgba(106,173,174,0.08);
+  font-family: 'Viaoda Libre', serif;
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  cursor: pointer;
+  transition: background 0.22s, color 0.22s;
+}
+.explore-tab.active {
+  background: var(--teal);
+  color: #fff;
+}
+.explore-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.explore-panel.hidden { display: none; }
+
 .globe-topbar {
   width: 100%;
   display: flex;
@@ -3006,19 +3065,6 @@ textarea.q-input { min-height: 60px; line-height: 1.6; }
 </div>
 
 <!-- ══════════════════════ PAGE 4: CARDS ══════════════════════ -->
-<div class="page hidden" id="page-cards">
-
-  <!-- fan carousel stage -->
-  <div class="fan-stage" id="fan-stage">
-    <div class="fan-track" id="fan-track"></div>
-  </div>
-
-  <!-- perspective word ring -->
-  <div class="ring-stage">
-    <canvas id="ring-canvas"></canvas>
-  </div>
-
-</div>
 
 <!-- ══════════════════════ PAGE 5: PROFILE ══════════════════════ -->
 <div class="page hidden" id="page-profile">
@@ -3165,30 +3211,46 @@ textarea.q-input { min-height: 60px; line-height: 1.6; }
 <!-- ══════════════════════ PAGE 6: EXPLORE ══════════════════════ -->
 <div class="page hidden" id="page-explore">
   <!-- live counter bar -->
-  <div class="globe-topbar">
-    <div class="globe-online-wrap">
-      <span class="globe-dot"></span>
-      <span id="globe-count">0</span>
-      <span class="globe-online-label">online now</span>
-    </div>
-    <button class="globe-view-toggle" id="globe-view-toggle">Globe</button>
+  <!-- top tab switcher -->
+  <div class="explore-tab-bar">
+    <button class="explore-tab active" id="etab-globe">Discover</button>
+    <button class="explore-tab" id="etab-cards">Archive</button>
   </div>
 
-  <!-- 3-D globe canvas -->
-  <div class="globe-stage">
-    <canvas id="globe-canvas"></canvas>
-    <div class="globe-glow"></div>
-  </div>
-  <!-- nearby / matched users list -->
-  <div class="globe-list-wrap">
-    <div class="globe-list-header">
-      <span id="globe-list-title">Near You</span>
-      <div class="globe-list-tabs">
-        <button class="globe-tab active" data-tab="near">Near</button>
-        <button class="globe-tab" data-tab="match">Match</button>
+  <!-- ── DISCOVER PANEL (globe) ── -->
+  <div class="explore-panel" id="epanel-globe">
+    <div class="globe-topbar">
+      <div class="globe-online-wrap">
+        <span class="globe-dot"></span>
+        <span id="globe-count">0</span>
+        <span class="globe-online-label">online now</span>
       </div>
+      <button class="globe-view-toggle" id="globe-view-toggle">Globe</button>
     </div>
-    <div class="globe-list" id="globe-list"></div>
+    <div class="globe-stage">
+      <canvas id="globe-canvas"></canvas>
+      <div class="globe-glow"></div>
+    </div>
+    <div class="globe-list-wrap">
+      <div class="globe-list-header">
+        <span id="globe-list-title">Near You</span>
+        <div class="globe-list-tabs">
+          <button class="globe-tab active" data-tab="near">Near</button>
+          <button class="globe-tab" data-tab="match">Match</button>
+        </div>
+      </div>
+      <div class="globe-list" id="globe-list"></div>
+    </div>
+  </div>
+
+  <!-- ── ARCHIVE PANEL (cards) ── -->
+  <div class="explore-panel hidden" id="epanel-cards">
+    <div class="fan-stage" id="fan-stage">
+      <div class="fan-track" id="fan-track"></div>
+    </div>
+    <div class="ring-stage">
+      <canvas id="ring-canvas"></canvas>
+    </div>
   </div>
 </div>
 
@@ -3230,13 +3292,6 @@ textarea.q-input { min-height: 60px; line-height: 1.6; }
       <path d="M21 21l-4.35-4.35" stroke-linecap="round"/>
     </svg>
     Explore
-  </button>
-  <button class="nav-btn" data-page="page-cards" id="nav-cards">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-      <rect x="3" y="5" width="14" height="18" rx="1"/>
-      <rect x="7" y="2" width="14" height="18" rx="1"/>
-    </svg>
-    Archive
   </button>
   <button class="nav-btn" data-page="page-mood" id="nav-mood">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
