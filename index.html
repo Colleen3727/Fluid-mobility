@@ -142,12 +142,13 @@ window.fbListenChat = function(otherUid, cb) {
   if (!myUid || !otherUid) return () => {};
   const cid = chatId(myUid, otherUid);
   const chatRef = query(ref(db, 'messages/' + cid), orderByChild('ts'), limitToLast(200));
-  onValue(chatRef, snap => {
+  /* onValue returns an unsubscribe function in Firebase v10 */
+  const unsub = onValue(chatRef, snap => {
     const msgs = [];
     snap.forEach(child => msgs.push({ id: child.key, ...child.val() }));
     cb(msgs);
   });
-  return () => off(chatRef);
+  return unsub;
 };
 
 /* listen for ANY new incoming message across all chats to show unread badge */
@@ -155,21 +156,20 @@ window.fbListenInbox = function(cb) {
   const myUid = window._fvMyUid;
   if (!myUid) return () => {};
   const inboxRef = ref(db, 'messages');
-  onValue(inboxRef, snap => {
+  const unsub = onValue(inboxRef, snap => {
     const unread = [];
     snap.forEach(chatSnap => {
-      /* only chats involving me */
       const [a, b] = chatSnap.key.split('__');
       if (a !== myUid && b !== myUid) return;
       const otherUid = a === myUid ? b : a;
       chatSnap.forEach(msgSnap => {
         const m = msgSnap.val();
-        if (m.from !== myUid) unread.push({ chatKey: chatSnap.key, otherUid, ...m });
+        if (m.from !== myUid) unread.push({ id: msgSnap.key, chatKey: chatSnap.key, otherUid, ...m });
       });
     });
     cb(unread);
   });
-  return () => off(inboxRef);
+  return unsub;
 };
 
 /* ── listen to all users ── */
@@ -4055,18 +4055,28 @@ document.addEventListener('DOMContentLoaded', function () {
 
     if (isReal) {
       /* ── REAL USER: subscribe to Firebase messages ── */
-      if (unsubChat) unsubChat();
-      unsubChat = window.fbListenChat(p.uid, msgs => {
-        /* render only new messages */
-        msgs.forEach(m => {
-          if (renderedIds.has(m.id)) return;
-          renderedIds.add(m.id);
-          const side = m.from === window._fvMyUid ? 'mine' : 'theirs';
-          addBubble(side, m.text, m.ts);
-          /* update convo preview */
-          if (window.updateConvoLastMsg) window.updateConvoLastMsg(p.uid, m.text);
+      if (unsubChat) { unsubChat(); unsubChat = null; }
+
+      function subscribeToChat() {
+        unsubChat = window.fbListenChat(p.uid, msgs => {
+          msgs.forEach(m => {
+            if (renderedIds.has(m.id)) return;
+            renderedIds.add(m.id);
+            const side = m.from === window._fvMyUid ? 'mine' : 'theirs';
+            addBubble(side, m.text, m.ts);
+            if (window.updateConvoLastMsg) window.updateConvoLastMsg(p.uid, m.text);
+          });
         });
-      });
+      }
+
+      /* wait for _fvMyUid if not ready yet */
+      if (window._fvMyUid) {
+        subscribeToChat();
+      } else {
+        const poll = setInterval(() => {
+          if (window._fvMyUid) { clearInterval(poll); subscribeToChat(); }
+        }, 200);
+      }
       if (window.registerConvo) window.registerConvo(p);
     } else {
       /* ── FAKE USER: show AI greeting ── */
@@ -4102,9 +4112,10 @@ document.addEventListener('DOMContentLoaded', function () {
     chatInput.value = '';
 
     if (chatPersona.uid) {
-      /* real user — write to Firebase; listener will render it */
+      /* real user — write to Firebase; onValue listener will render it back */
+      if (!window._fvMyUid) return; /* uid not ready, drop silently */
       window.fbSendMessage(chatPersona.uid, text);
-      if (window.updateConvoLastMsg) window.updateConvoLastMsg(chatPersona.uid, text);
+      /* don't render locally — Firebase listener will echo it back */
     } else {
       /* fake user — render locally + AI reply */
       addBubble('mine', text, Date.now());
