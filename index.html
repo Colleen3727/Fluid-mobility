@@ -3554,10 +3554,8 @@ function goTo(id, direction = 'up') {
   document.querySelectorAll('.nav-btn').forEach(b => {
     b.classList.toggle('active', b.dataset.page === id);
     if (b.dataset.page === id && pill && navBar) {
-      const barRect = navBar.getBoundingClientRect();
-      const btnRect = b.getBoundingClientRect();
       const pillW = pill.offsetWidth;
-      const btnCx = btnRect.left - barRect.left + btnRect.width / 2;
+      const btnCx = b.offsetLeft + b.offsetWidth / 2;
       pill.style.left = (btnCx - pillW / 2) + 'px';
     }
   });
@@ -3568,11 +3566,8 @@ function initNavPill() {
   const navBar = document.getElementById('nav-bar');
   const active = navBar && navBar.querySelector('.nav-btn.active');
   if (!pill || !navBar || !active) return;
-  const barRect = navBar.getBoundingClientRect();
-  const btnRect = active.getBoundingClientRect();
-  /* set without transition on first load */
   const pillW = pill.offsetWidth;
-  const btnCx = btnRect.left - barRect.left + btnRect.width / 2;
+  const btnCx = active.offsetLeft + active.offsetWidth / 2;
   pill.style.transition = 'none';
   pill.style.left = (btnCx - pillW / 2) + 'px';
   requestAnimationFrame(() => { pill.style.transition = ''; });
