@@ -1987,9 +1987,8 @@ textarea.q-input { min-height: 60px; line-height: 1.6; }
   z-index: 2;
 }
 .explore-tab {
-  flex: 1;
-  max-width: 140px;
-  padding: 6px 0;
+  flex: none;
+  padding: 6px 22px;
   border: none;
   border-radius: 16px;
   background: rgba(106,173,174,0.08);
@@ -2000,6 +1999,7 @@ textarea.q-input { min-height: 60px; line-height: 1.6; }
   color: var(--ink-faint);
   cursor: pointer;
   transition: background 0.22s, color 0.22s;
+  white-space: nowrap;
 }
 .explore-tab.active {
   background: var(--teal);
