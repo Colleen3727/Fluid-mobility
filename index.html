@@ -806,14 +806,15 @@ html, body {
 
 /* sliding indicator pill */
 #nav-pill {
-  position: absolute;
-  top: 50%; transform: translateY(-50%);
+  position: fixed;
   width: 56px; height: 48px;
   border-radius: 24px;
   background: rgba(106,173,174,0.16);
-  transition: left 0.38s cubic-bezier(0.34,1.28,0.64,1);
+  transition: left 0.38s cubic-bezier(0.34,1.28,0.64,1),
+              top  0.38s cubic-bezier(0.34,1.28,0.64,1);
   pointer-events: none;
-  z-index: 0;
+  z-index: 199;
+  transform: translateY(-50%);
 }
 
 .nav-btn {
@@ -3209,8 +3210,8 @@ textarea.q-input { min-height: 60px; line-height: 1.6; }
 </div>
 
 <!-- ══════════════════════ BOTTOM NAV ══════════════════════ -->
+<div id="nav-pill"></div>
 <nav id="nav-bar">
-  <div id="nav-pill"></div>
   <button class="nav-btn active" data-page="page-home" id="nav-home">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
       <circle cx="12" cy="12" r="9"/>
@@ -3595,9 +3596,11 @@ function goTo(id, direction = 'up') {
   document.querySelectorAll('.nav-btn').forEach(b => {
     b.classList.toggle('active', b.dataset.page === id);
     if (b.dataset.page === id && pill && navBar) {
-      const pillW = pill.offsetWidth;
-      const btnCx = b.offsetLeft + b.offsetWidth / 2;
-      pill.style.left = (btnCx - pillW / 2) + 'px';
+      const btnRect = b.getBoundingClientRect();
+      const pillW   = pill.offsetWidth;
+      const pillH   = pill.offsetHeight;
+      pill.style.left = (btnRect.left + btnRect.width / 2 - pillW / 2) + 'px';
+      pill.style.top  = (btnRect.top  + btnRect.height / 2) + 'px';
     }
   });
 }
@@ -3607,10 +3610,11 @@ function initNavPill() {
   const navBar = document.getElementById('nav-bar');
   const active = navBar && navBar.querySelector('.nav-btn.active');
   if (!pill || !navBar || !active) return;
-  const pillW = pill.offsetWidth;
-  const btnCx = active.offsetLeft + active.offsetWidth / 2;
+  const btnRect = active.getBoundingClientRect();
+  const pillW   = pill.offsetWidth;
   pill.style.transition = 'none';
-  pill.style.left = (btnCx - pillW / 2) + 'px';
+  pill.style.left = (btnRect.left + btnRect.width / 2 - pillW / 2) + 'px';
+  pill.style.top  = (btnRect.top  + btnRect.height / 2) + 'px';
   requestAnimationFrame(() => { pill.style.transition = ''; });
 }
 
