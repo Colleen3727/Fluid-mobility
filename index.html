@@ -1205,7 +1205,7 @@ html, body {
   appearance: none;
 }
 .q-input:focus { background: rgba(106,173,174,0.13); }
-.q-input::placeholder { color: var(--ink-faint); font-style: italic; }
+.q-input::placeholder { color: var(--ink-faint); font-style: italic; font-size: 13px; line-height: 1.55; opacity: 0.85; }
 textarea.q-input { min-height: 60px; line-height: 1.6; }
 
 .q-submit-wrap {
@@ -3726,6 +3726,70 @@ const ticker = setInterval(() => {
 
 /* ── SUBMIT → save answers + show app ── */
 /* tag selection in questions page */
+/* ── rotating placeholders for the three questions ── */
+(function() {
+  const HINTS = [
+    [
+      "Someone who got here without a map and is still pretending they know the way",
+      "A first-generation everything. First to leave, first to arrive, first to not belong",
+      "I perform competence until it becomes true",
+      "The person in the room who knows the price of everything and the value of nothing yet",
+      "Ambitious enough to be dangerous, self-aware enough to be paralyzed",
+      "A work in progress that everyone keeps mistaking for a finished product",
+      "Someone whose parents sacrificed so I could want more than they did",
+      "I am the version of myself I've been rehearsing since seventeen",
+      "Fluent in the language of rooms I haven't been invited into yet",
+      "The one who stays after the party to learn how the hosts actually talk"
+    ],
+    [
+      "People who never had to choose between ambition and belonging",
+      "The ones whose network was inherited, not built",
+      "Anyone who can walk into a room and already know three people who matter",
+      "People who mistake confidence for competence and get away with it forever",
+      "Those who learned early that charm is a form of capital",
+      "The ones who can afford to be interesting without being useful",
+      "People for whom failure is an anecdote, not a verdict",
+      "Anyone whose last name opens doors I'm still learning exist",
+      "The ones who don't have to perform ease — they simply have it",
+      "Whoever decided the rules of the game we're all pretending isn't happening"
+    ],
+    [
+      "Yes, but I need to know what I'm trading first",
+      "I already am. I just can't tell anyone how much it cost",
+      "I want the access, not the performance that comes with it",
+      "Only if I can stay myself on the other side. Probably not possible",
+      "More than I let myself admit in public",
+      "I want what they have. I'm not ready to say that out loud yet",
+      "Fun is the wrong word. I want leverage",
+      "I'd settle for knowing where the ceiling actually is",
+      "Yes. I've been preparing for it my entire life without calling it that",
+      "Ask me again after I've seen what's on the other side"
+    ]
+  ];
+
+  const inputs = [
+    document.getElementById('q-answer-1'),
+    document.getElementById('q-answer-2'),
+    document.getElementById('q-answer-3')
+  ];
+
+  const indices = [0, 0, 0];
+
+  function rotatePlaceholder(i) {
+    if (!inputs[i] || document.activeElement === inputs[i]) return;
+    const pool = HINTS[i];
+    indices[i] = (indices[i] + 1) % pool.length;
+    inputs[i].setAttribute('placeholder', pool[indices[i]]);
+  }
+
+  inputs.forEach((inp, i) => {
+    if (!inp) return;
+    inp.setAttribute('placeholder', HINTS[i][Math.floor(Math.random() * HINTS[i].length)]);
+  });
+
+  setInterval(() => { rotatePlaceholder(0); rotatePlaceholder(1); rotatePlaceholder(2); }, 30000);
+})();
+
 document.getElementById('page-questions').addEventListener('click', e => {
   const tag = e.target.closest('.ob-tag');
   if (tag) tag.classList.toggle('selected');
