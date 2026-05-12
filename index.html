@@ -4235,16 +4235,18 @@ document.addEventListener('DOMContentLoaded', function () {
 
   /* preset replies per persona — falls back to generic pool */
   const genericReplies = [
-    "I find that idea quite compelling, actually.",
-    "That resonates with something I've been thinking about.",
-    "Interesting. Tell me more.",
-    "I wasn't expecting that. But I like it.",
-    "There's something poetic about what you just said.",
-    "Mmm. I need a moment with that.",
-    "You have a very particular way of seeing things.",
-    "That's the kind of thing I'd write in the margin of a book.",
-    "I agree, though I'd phrase it differently.",
-    "Curious. Most people don't notice that.",
+    "I've been thinking about what you said. There's more to it than I first assumed.",
+    "I keep coming back to this. I'm not sure why it stays with me.",
+    "Honestly? I didn't expect to find this interesting. And yet.",
+    "There's something I haven't said yet. I'm still deciding if I should.",
+    "I think we're both circling around the same thing from opposite directions.",
+    "I had a whole response ready. Then I reconsidered.",
+    "You know what I find strange? How easy it is to talk to you.",
+    "I was doing something else entirely. And then I thought of this conversation.",
+    "There are people you talk to and people you actually talk to. This feels like the second kind.",
+    "I wonder if you're as good at this in person as you are here.",
+    "I don't usually say things like that. I'm not sure what that means.",
+    "Tell me something you haven't told anyone else today.",
   ];
 
   let chatPersona  = null;
@@ -4318,35 +4320,23 @@ document.addEventListener('DOMContentLoaded', function () {
     setTimeout(() => { hideTyping(); addBubble('theirs', msg, Date.now()); }, 900 + msg.length * 18);
   }
 
-  /* ── silence-filler: AI speaks after 30s of no messages (real user chats) ── */
-  const silenceLines = [
-    "Still there?",
-    "The quiet is doing something, I'm just not sure what.",
-    "I was going to say something important. Now I've forgotten.",
-    "Silence noted. I'll match it.",
-    "I keep refreshing the conversation in my head.",
-    "You went quiet. So did I. Here we are.",
-    "Some conversations are better in the pauses.",
-    "I'm still here. Just waiting.",
-    "Say something. Or don't. Both tell me something.",
-    "This is the part where one of us is supposed to say something real.",
-  ];
+  /* ── silence-filler: after 30s of no messages, AI continues the conversation ── */
   let silenceFillIdx = 0;
 
   function resetSilenceTimer() {
     clearTimeout(silenceTimer);
     silenceTimer = null;
-    if (!chatPersona || !chatPersona.uid) return; /* only for real-user chats */
+    if (!chatPersona || !chatPersona.uid) return;
     silenceTimer = setTimeout(() => {
       if (!chatPersona || !chatPersona.uid) return;
-      const msg = silenceLines[silenceFillIdx % silenceLines.length];
+      const msg = genericReplies[silenceFillIdx % genericReplies.length];
       silenceFillIdx++;
       showTyping();
       setTimeout(() => {
         hideTyping();
         addBubble('theirs', msg, Date.now());
-        resetSilenceTimer(); /* schedule next one */
-      }, 1200);
+        resetSilenceTimer();
+      }, 900 + msg.length * 18);
     }, 30000);
   }
 
