@@ -3400,7 +3400,47 @@ function shuffle(arr) {
     { rx: CW*0.42, ry: CW*0.07,  cy: CH*0.50, offset: 0.14,  color: '#c0455e', baseOp: 0.65, sizeM: 0.75, extraBlur: 1.2 }, /* rose, mid, smaller   */
     { rx: CW*0.44, ry: CW*0.075, cy: CH*0.78, offset: -0.10, color: '#8b6914', baseOp: 0.55, sizeM: 0.82, extraBlur: 0.7 }, /* gold, lower, mid     */
   ];
-  let ringAngle = 0;
+  let ringAngle    = 0;
+  let ringAutoSpin = true;
+  let ringDragging = false;
+  let ringDragStartX = 0, ringDragStartAngle = 0;
+  let ringVel = 0, ringLastX = 0;
+
+  canvas.style.cursor = 'grab';
+  canvas.addEventListener('pointerdown', e => {
+    ringDragging = true;
+    ringAutoSpin = false;
+    ringVel = 0;
+    ringDragStartX    = e.clientX;
+    ringLastX         = e.clientX;
+    ringDragStartAngle = ringAngle;
+    canvas.setPointerCapture(e.pointerId);
+    canvas.style.cursor = 'grabbing';
+  });
+  canvas.addEventListener('pointermove', e => {
+    if (!ringDragging) return;
+    ringVel    = (e.clientX - ringLastX) * 0.003;
+    ringLastX  = e.clientX;
+    ringAngle  = ringDragStartAngle + (e.clientX - ringDragStartX) * 0.006;
+  });
+  canvas.addEventListener('pointerup', () => {
+    ringDragging = false;
+    canvas.style.cursor = 'grab';
+    /* flick: keep velocity, decay to auto-spin */
+    let vel = ringVel;
+    function flick() {
+      if (Math.abs(vel) < 0.001) { ringAutoSpin = true; return; }
+      ringAngle += vel;
+      vel *= 0.94;
+      requestAnimationFrame(flick);
+    }
+    flick();
+  });
+  canvas.addEventListener('pointercancel', () => {
+    ringDragging = false;
+    ringAutoSpin = true;
+    canvas.style.cursor = 'grab';
+  });
 
   /* per-slot: DOM element + current persona */
   const slots = Array.from({ length: N }, (_, i) => {
@@ -3586,7 +3626,7 @@ function shuffle(arr) {
   /* ── canvas word ring ── */
   function drawRing() {
     ctx.clearRect(0, 0, CW, CH);
-    ringAngle += 0.008;
+    if (ringAutoSpin && !ringDragging) ringAngle += 0.008;
 
     /* collect all items from all rings, sort by depth so back items render first */
     const allItems = [];
