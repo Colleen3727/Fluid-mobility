@@ -4252,6 +4252,7 @@ document.addEventListener('DOMContentLoaded', function () {
   let typingEl     = null;
   let unsubChat    = null;   /* unsubscribe from Firebase listener */
   let renderedIds  = new Set();
+  let silenceTimer = null;   /* AI fills silence after 30s */
 
   /* ── helpers ── */
   function addDateDivider(text) {
@@ -4317,6 +4318,43 @@ document.addEventListener('DOMContentLoaded', function () {
     setTimeout(() => { hideTyping(); addBubble('theirs', msg, Date.now()); }, 900 + msg.length * 18);
   }
 
+  /* ── silence-filler: AI speaks after 30s of no messages (real user chats) ── */
+  const silenceLines = [
+    "Still there?",
+    "The quiet is doing something, I'm just not sure what.",
+    "I was going to say something important. Now I've forgotten.",
+    "Silence noted. I'll match it.",
+    "I keep refreshing the conversation in my head.",
+    "You went quiet. So did I. Here we are.",
+    "Some conversations are better in the pauses.",
+    "I'm still here. Just waiting.",
+    "Say something. Or don't. Both tell me something.",
+    "This is the part where one of us is supposed to say something real.",
+  ];
+  let silenceFillIdx = 0;
+
+  function resetSilenceTimer() {
+    clearTimeout(silenceTimer);
+    silenceTimer = null;
+    if (!chatPersona || !chatPersona.uid) return; /* only for real-user chats */
+    silenceTimer = setTimeout(() => {
+      if (!chatPersona || !chatPersona.uid) return;
+      const msg = silenceLines[silenceFillIdx % silenceLines.length];
+      silenceFillIdx++;
+      showTyping();
+      setTimeout(() => {
+        hideTyping();
+        addBubble('theirs', msg, Date.now());
+        resetSilenceTimer(); /* schedule next one */
+      }, 1200);
+    }, 30000);
+  }
+
+  function stopSilenceTimer() {
+    clearTimeout(silenceTimer);
+    silenceTimer = null;
+  }
+
   /* ── open chat ── */
   function openChat(p) {
     if (!p) return;
@@ -4346,8 +4384,10 @@ document.addEventListener('DOMContentLoaded', function () {
             const side = m.from === window._fvMyUid ? 'mine' : 'theirs';
             addBubble(side, m.text, m.ts, m.media, m.mediaType);
             if (window.updateConvoLastMsg) window.updateConvoLastMsg(p.uid, m.media ? '📷 Media' : m.text);
+            resetSilenceTimer(); /* any message resets the 30s clock */
           });
         });
+        resetSilenceTimer(); /* start timer when chat opens */
       }
 
       /* wait for _fvMyUid if not ready yet */
@@ -4381,6 +4421,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
   function closeChat() {
     chatOverlay.classList.add('hidden');
+    stopSilenceTimer();
   }
 
   window.openChat = openChat;
@@ -4396,6 +4437,7 @@ document.addEventListener('DOMContentLoaded', function () {
       /* real user — write to Firebase; onValue listener will render it back */
       if (!window._fvMyUid) return; /* uid not ready, drop silently */
       window.fbSendMessage(chatPersona.uid, text);
+      resetSilenceTimer(); /* reset 30s clock on send */
       /* don't render locally — Firebase listener will echo it back */
     } else {
       /* fake user — render locally + AI reply */
