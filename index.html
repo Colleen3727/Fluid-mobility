@@ -3394,9 +3394,9 @@ function shuffle(arr) {
   const CX = CW/2, CY = CH*0.28;
   /* three rings: slightly different radii + colour */
   const RINGS = [
-    { rx: CW*0.46, ry: CW*0.12,   offset: 0,     color: '#6aadae', baseOp: 1.00 }, /* primary teal  */
-    { rx: CW*0.44, ry: CW*0.115,  offset: 0.22,  color: '#c0455e', baseOp: 0.75 }, /* rose, offset  */
-    { rx: CW*0.48, ry: CW*0.125,  offset: -0.18, color: '#8b6914', baseOp: 0.60 }, /* gold, offset  */
+    { rx: CW*0.46, ry: CW*0.12,   offset: 0,     color: '#6aadae', baseOp: 1.00, sizeM: 1.00, extraBlur: 0   }, /* primary teal  */
+    { rx: CW*0.45, ry: CW*0.118,  offset: 0.10,  color: '#c0455e', baseOp: 0.70, sizeM: 0.82, extraBlur: 0.8 }, /* rose, smaller + blurrier */
+    { rx: CW*0.47, ry: CW*0.122,  offset: -0.08, color: '#8b6914', baseOp: 0.55, sizeM: 0.88, extraBlur: 0.5 }, /* gold, mid size + slight blur */
   ];
   let ringAngle = 0;
 
@@ -3596,9 +3596,9 @@ function shuffle(arr) {
         const depth = Math.sin(theta), t = (depth + 1) / 2;
         allItems.push({
           word: RING_WORDS[i], x, y, depth,
-          scale: 0.55 + 0.45*t,
+          scale: (0.55 + 0.45*t) * ring.sizeM,
           op:    (0.28 + 0.72*t) * ring.baseOp,
-          blur:  (1 - t) * 2.0,
+          blur:  (1 - t) * 2.0 + ring.extraBlur,
           color: ring.color,
         });
       }
