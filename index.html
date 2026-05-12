@@ -3391,7 +3391,13 @@ function shuffle(arr) {
   const RING_WORDS = ['Fair','·','Vanity','·','Fluid','·','Mobility','·','Persona','·','Identity','·',
                       'Fair','·','Vanity','·','Fluid','·','Mobility','·','Persona','·','Identity','·'];
   const RING_N = RING_WORDS.length;
-  const RX = CW*0.46, RY = CW*0.12, CX = CW/2, CY = CH*0.28;
+  const CX = CW/2, CY = CH*0.28;
+  /* three rings: slightly different radii + colour */
+  const RINGS = [
+    { rx: CW*0.46, ry: CW*0.12,   offset: 0,     color: '#6aadae', baseOp: 1.00 }, /* primary teal  */
+    { rx: CW*0.44, ry: CW*0.105,  offset: 0.38,  color: '#b05a72', baseOp: 0.62 }, /* rose, offset  */
+    { rx: CW*0.48, ry: CW*0.135,  offset: -0.28, color: '#2a2a2a', baseOp: 0.38 }, /* dark, offset  */
+  ];
   let ringAngle = 0;
 
   /* per-slot: DOM element + current persona */
@@ -3579,21 +3585,34 @@ function shuffle(arr) {
   function drawRing() {
     ctx.clearRect(0, 0, CW, CH);
     ringAngle += 0.008;
-    const items = [];
-    for (let i = 0; i < RING_N; i++) {
-      const theta = (2 * Math.PI * i / RING_N) + ringAngle;
-      const x = CX + RX * Math.cos(theta), y = CY + RY * Math.sin(theta);
-      const depth = Math.sin(theta), t = (depth + 1) / 2;
-      items.push({ word: RING_WORDS[i], x, y,
-        scale: 0.55 + 0.45*t, op: 0.30 + 0.70*t, blur: (1-t)*1.8, depth });
-    }
-    items.sort((a, b) => a.depth - b.depth);
-    items.forEach(({ word, x, y, scale, op, blur }) => {
+
+    /* collect all items from all rings, sort by depth so back items render first */
+    const allItems = [];
+    RINGS.forEach(ring => {
+      for (let i = 0; i < RING_N; i++) {
+        const theta = (2 * Math.PI * i / RING_N) + ringAngle + ring.offset;
+        const x = CX + ring.rx * Math.cos(theta);
+        const y = CY + ring.ry * Math.sin(theta);
+        const depth = Math.sin(theta), t = (depth + 1) / 2;
+        allItems.push({
+          word: RING_WORDS[i], x, y, depth,
+          scale: 0.55 + 0.45*t,
+          op:    (0.28 + 0.72*t) * ring.baseOp,
+          blur:  (1 - t) * 2.0,
+          color: ring.color,
+        });
+      }
+    });
+
+    allItems.sort((a, b) => a.depth - b.depth);
+    allItems.forEach(({ word, x, y, scale, op, blur, color }) => {
       ctx.save();
       ctx.globalAlpha = op;
-      if (blur > 0.15) ctx.filter = `blur(${blur.toFixed(1)}px)`;
+      if (blur > 0.2) ctx.filter = `blur(${blur.toFixed(1)}px)`;
       ctx.font = `${Math.round(20*scale)}px 'Fredericka the Great', serif`;
-      ctx.fillStyle = '#6aadae'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillStyle = color;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
       ctx.fillText(word, x, y);
       ctx.restore();
     });
