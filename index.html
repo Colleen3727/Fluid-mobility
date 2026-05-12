@@ -3385,18 +3385,20 @@ function shuffle(arr) {
   const radius = Math.round(cardW * 0.76);
 
   /* canvas word-ring */
-  const CW = Math.round(vw * 0.88), CH = 120;
+  const CW = Math.round(vw * 0.88), CH = 180;
   canvas.width = CW; canvas.height = CH;
   canvas.style.width = CW + 'px'; canvas.style.height = CH + 'px';
   const RING_WORDS = ['Fair','·','Vanity','·','Fluid','·','Mobility','·','Persona','·','Identity','·',
                       'Fair','·','Vanity','·','Fluid','·','Mobility','·','Persona','·','Identity','·'];
   const RING_N = RING_WORDS.length;
-  const CX = CW/2, CY = CH*0.28;
+  const CX = CW/2;
   /* three rings: slightly different radii + colour */
+  /* three rings stacked vertically — different cy, rx, ry so they sit
+     at different heights and only lightly graze each other             */
   const RINGS = [
-    { rx: CW*0.46, ry: CW*0.12,   offset: 0,     color: '#6aadae', baseOp: 1.00, sizeM: 1.00, extraBlur: 0   }, /* primary teal  */
-    { rx: CW*0.45, ry: CW*0.118,  offset: 0.10,  color: '#c0455e', baseOp: 0.70, sizeM: 0.82, extraBlur: 0.8 }, /* rose, smaller + blurrier */
-    { rx: CW*0.47, ry: CW*0.122,  offset: -0.08, color: '#8b6914', baseOp: 0.55, sizeM: 0.88, extraBlur: 0.5 }, /* gold, mid size + slight blur */
+    { rx: CW*0.46, ry: CW*0.085, cy: CH*0.22, offset: 0,     color: '#6aadae', baseOp: 1.00, sizeM: 1.00, extraBlur: 0   }, /* primary teal, top    */
+    { rx: CW*0.42, ry: CW*0.07,  cy: CH*0.50, offset: 0.14,  color: '#c0455e', baseOp: 0.65, sizeM: 0.75, extraBlur: 1.2 }, /* rose, mid, smaller   */
+    { rx: CW*0.44, ry: CW*0.075, cy: CH*0.78, offset: -0.10, color: '#8b6914', baseOp: 0.55, sizeM: 0.82, extraBlur: 0.7 }, /* gold, lower, mid     */
   ];
   let ringAngle = 0;
 
@@ -3592,7 +3594,7 @@ function shuffle(arr) {
       for (let i = 0; i < RING_N; i++) {
         const theta = (2 * Math.PI * i / RING_N) + ringAngle + ring.offset;
         const x = CX + ring.rx * Math.cos(theta);
-        const y = CY + ring.ry * Math.sin(theta);
+        const y = ring.cy + ring.ry * Math.sin(theta);
         const depth = Math.sin(theta), t = (depth + 1) / 2;
         allItems.push({
           word: RING_WORDS[i], x, y, depth,
