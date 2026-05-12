@@ -2973,39 +2973,49 @@ textarea.q-input { min-height: 60px; line-height: 1.6; }
         <filter id="f-ghost"><feGaussianBlur stdDeviation="4.0"/></filter>
       </defs>
 
+      <!-- primary ring: sharp black -->
       <text fill="#1a1a1a" opacity="0.68">
         <textPath href="#rp-a" startOffset="0%">Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair ·</textPath>
       </text>
+      <!-- ghost echo of primary, slight offset -->
       <text fill="#1a1a1a" filter="url(#f-light)" opacity="0.28">
         <textPath href="#rp-a" startOffset="2.2%">Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair ·</textPath>
       </text>
-      <text fill="#4a8b8c" filter="url(#f-mid)" opacity="0.32">
-        <textPath href="#rp-b" startOffset="7%">Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity ·</textPath>
+
+      <!-- overlapping ring 1: warm rose, slightly larger, offset ~4% -->
+      <text fill="#b05a72" filter="url(#f-sharp)" opacity="0.52" font-size="15.5" letter-spacing="2">
+        <textPath href="#rp-b" startOffset="4%">Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair ·</textPath>
       </text>
-      <text fill="#4a8b8c" filter="url(#f-ghost)" opacity="0.16">
-        <textPath href="#rp-b" startOffset="4%">Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity ·</textPath>
+      <text fill="#b05a72" filter="url(#f-mid)" opacity="0.18">
+        <textPath href="#rp-b" startOffset="6.5%">Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair ·</textPath>
       </text>
+
+      <!-- overlapping ring 2: teal-blue, slightly larger still, offset ~−3% -->
+      <text fill="#4a8b8c" filter="url(#f-sharp)" opacity="0.46" font-size="15" letter-spacing="2">
+        <textPath href="#rp-c" startOffset="96%">Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair ·</textPath>
+      </text>
+      <text fill="#4a8b8c" filter="url(#f-mid)" opacity="0.16">
+        <textPath href="#rp-c" startOffset="94%">Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair ·</textPath>
+      </text>
+
       <circle cx="350" cy="350" r="278" fill="none" stroke="#c0392b" stroke-width="0.7" opacity="0.65"/>
       <text fill="#1a1a1a" filter="url(#f-sharp)" opacity="0.55">
-        <textPath href="#rp-c" startOffset="13%">Mobility · Fluid · Vanity · Fair · Persona · Mobility · Fluid · Vanity · Fair · Persona · Mobility · Fluid · Vanity · Fair · Persona ·</textPath>
+        <textPath href="#rp-d" startOffset="13%">Mobility · Fluid · Vanity · Fair · Persona · Mobility · Fluid · Vanity · Fair · Persona · Mobility · Fluid · Vanity · Fair · Persona ·</textPath>
       </text>
       <text fill="#8b4a5a" filter="url(#f-mid)" opacity="0.20">
-        <textPath href="#rp-c" startOffset="15%">Mobility · Fluid · Vanity · Fair · Persona · Mobility · Fluid · Vanity · Fair · Persona · Mobility · Fluid · Vanity · Fair · Persona ·</textPath>
+        <textPath href="#rp-d" startOffset="15%">Mobility · Fluid · Vanity · Fair · Persona · Mobility · Fluid · Vanity · Fair · Persona · Mobility · Fluid · Vanity · Fair · Persona ·</textPath>
       </text>
       <text fill="#2a2a2a" filter="url(#f-heavy)" opacity="0.22">
-        <textPath href="#rp-d" startOffset="0%">Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity ·</textPath>
+        <textPath href="#rp-e" startOffset="0%">Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity ·</textPath>
       </text>
       <text fill="#888880" font-size="11" opacity="0.55">
-        <textPath href="#rp-e" startOffset="5%">Vanity · Fair · Fluid · Mobility · Persona · Vanity · Fair · Fluid · Mobility · Persona · Vanity · Fair · Fluid · Mobility · Persona · Vanity · Fair · Fluid · Mobility · Persona ·</textPath>
+        <textPath href="#rp-f" startOffset="5%">Vanity · Fair · Fluid · Mobility · Persona · Vanity · Fair · Fluid · Mobility · Persona · Vanity · Fair · Fluid · Mobility · Persona · Vanity · Fair · Fluid · Mobility · Persona ·</textPath>
       </text>
       <text fill="#888880" font-size="11" filter="url(#f-light)" opacity="0.25">
-        <textPath href="#rp-e" startOffset="6.5%">Vanity · Fair · Fluid · Mobility · Persona · Vanity · Fair · Fluid · Mobility · Persona · Vanity · Fair · Fluid · Mobility · Persona · Vanity · Fair · Fluid · Mobility · Persona ·</textPath>
+        <textPath href="#rp-f" startOffset="6.5%">Vanity · Fair · Fluid · Mobility · Persona · Vanity · Fair · Fluid · Mobility · Persona · Vanity · Fair · Fluid · Mobility · Persona · Vanity · Fair · Fluid · Mobility · Persona ·</textPath>
       </text>
       <text fill="#6aadae" filter="url(#f-ghost)" opacity="0.18">
-        <textPath href="#rp-f" startOffset="20%">Fair Vanity Fair Vanity Fair Vanity Fair Vanity Fair Vanity Fair Vanity Fair Vanity Fair Vanity Fair Vanity Fair Vanity Fair Vanity</textPath>
-      </text>
-      <text fill="#1a1a1a" filter="url(#f-mid)" opacity="0.14">
-        <textPath href="#rp-g" startOffset="0%">Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair · Vanity Fair ·</textPath>
+        <textPath href="#rp-g" startOffset="20%">Fair Vanity Fair Vanity Fair Vanity Fair Vanity Fair Vanity Fair Vanity Fair Vanity Fair Vanity Fair Vanity Fair Vanity Fair Vanity</textPath>
       </text>
       <text class="ring-inner">
         <textPath href="#rp-inner" startOffset="0%">Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity · Fair Vanity ·</textPath>
