@@ -1189,9 +1189,16 @@ html, body {
   font-style: italic;
 }
 
+.q-input-wrap {
+  position: relative;
+  background: rgba(106,173,174,0.07);
+  border-radius: 12px;
+  transition: background 0.3s;
+}
+.q-input-wrap:focus-within { background: rgba(106,173,174,0.13); }
 .q-input {
   width: 100%;
-  background: rgba(106,173,174,0.07);
+  background: transparent;
   border: none;
   border-radius: 12px;
   outline: none;
@@ -1199,14 +1206,30 @@ html, body {
   font-size: 15px;
   color: var(--ink);
   padding: 10px 14px;
-  transition: background 0.3s;
   resize: none;
   -webkit-appearance: none;
   appearance: none;
+  position: relative;
+  z-index: 2;
 }
-.q-input:focus { background: rgba(106,173,174,0.13); }
-.q-input::placeholder { color: var(--ink-faint); font-style: italic; font-size: 13px; line-height: 1.55; opacity: 0.85; }
+.q-input::placeholder { color: transparent; }
 textarea.q-input { min-height: 60px; line-height: 1.6; }
+.q-ghost {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  padding: 10px 14px;
+  font-family: 'Viaoda Libre', serif;
+  font-size: 13px;
+  font-style: italic;
+  line-height: 1.6;
+  color: var(--ink-faint);
+  opacity: 0.6;
+  pointer-events: none;
+  white-space: pre-wrap;
+  word-break: break-word;
+  z-index: 1;
+  overflow: hidden;
+}
 
 .q-submit-wrap {
   display: flex; justify-content: flex-end;
@@ -3028,19 +3051,28 @@ textarea.q-input { min-height: 60px; line-height: 1.6; }
     <div class="question-block">
       <p class="question-number">01 / 03</p>
       <p class="question-label">Who are YOU</p>
-      <textarea class="q-input" id="q-answer-1" rows="3" placeholder="your answer…"></textarea>
+      <div class="q-input-wrap">
+        <textarea class="q-input" id="q-answer-1" rows="3" placeholder="your answer…"></textarea>
+        <div class="q-ghost" id="q-ghost-1"></div>
+      </div>
     </div>
 
     <div class="question-block">
       <p class="question-number">02 / 03</p>
       <p class="question-label">Who has all the FUN in the world</p>
-      <textarea class="q-input" id="q-answer-2" rows="3" placeholder="your answer…"></textarea>
+      <div class="q-input-wrap">
+        <textarea class="q-input" id="q-answer-2" rows="3" placeholder="your answer…"></textarea>
+        <div class="q-ghost" id="q-ghost-2"></div>
+      </div>
     </div>
 
     <div class="question-block">
       <p class="question-number">03 / 03</p>
       <p class="question-label">Do you wanna have more FUN</p>
-      <textarea class="q-input" id="q-answer-3" rows="3" placeholder="your answer…"></textarea>
+      <div class="q-input-wrap">
+        <textarea class="q-input" id="q-answer-3" rows="3" placeholder="your answer…"></textarea>
+        <div class="q-ghost" id="q-ghost-3"></div>
+      </div>
     </div>
 
     <div class="q-submit-wrap">
@@ -3927,22 +3959,61 @@ const ticker = setInterval(() => {
     document.getElementById('q-answer-2'),
     document.getElementById('q-answer-3')
   ];
+  const ghosts = [
+    document.getElementById('q-ghost-1'),
+    document.getElementById('q-ghost-2'),
+    document.getElementById('q-ghost-3')
+  ];
 
   const indices = [0, 0, 0];
-
-  function rotatePlaceholder(i) {
-    if (!inputs[i] || document.activeElement === inputs[i]) return;
-    const pool = HINTS[i];
-    indices[i] = (indices[i] + 1) % pool.length;
-    inputs[i].setAttribute('placeholder', pool[indices[i]]);
-  }
-
+  /* start each at a random hint */
   inputs.forEach((inp, i) => {
-    if (!inp) return;
-    inp.setAttribute('placeholder', HINTS[i][Math.floor(Math.random() * HINTS[i].length)]);
+    indices[i] = Math.floor(Math.random() * HINTS[i].length);
   });
 
-  setInterval(() => { rotatePlaceholder(0); rotatePlaceholder(1); rotatePlaceholder(2); }, 30000);
+  function currentHint(i) { return HINTS[i][indices[i]]; }
+
+  function updateGhost(i) {
+    const inp = inputs[i]; const ghost = ghosts[i];
+    if (!inp || !ghost) return;
+    const typed = inp.value;
+    const hint  = currentHint(i);
+    if (typed.length === 0) {
+      /* nothing typed: show full hint */
+      ghost.textContent = hint;
+      ghost.style.opacity = '0.55';
+    } else if (hint.toLowerCase().startsWith(typed.toLowerCase())) {
+      /* hint continues what user typed: show typed (invisible) + remainder */
+      const invisible = typed.replace(/./g, ' '); /* preserve width */
+      ghost.textContent = invisible + hint.slice(typed.length);
+      ghost.style.opacity = '0.45';
+    } else {
+      /* hint doesn't match: show hint on new visual line after typed text */
+      const lines = typed.split('\n');
+      const lastLine = lines[lines.length - 1];
+      /* show hint dimly below */
+      ghost.textContent = typed + (typed.endsWith('\n') ? '' : '  ') + '— ' + hint;
+      ghost.style.opacity = '0.28';
+    }
+  }
+
+  function rotateHint(i) {
+    indices[i] = (indices[i] + 1) % HINTS[i].length;
+    updateGhost(i);
+  }
+
+  /* init ghosts */
+  inputs.forEach((inp, i) => { if (inp) { updateGhost(i); } });
+
+  /* update ghost on every keystroke */
+  inputs.forEach((inp, i) => {
+    if (!inp) return;
+    inp.addEventListener('input', () => updateGhost(i));
+    inp.addEventListener('focus', () => updateGhost(i));
+  });
+
+  /* rotate every 10 seconds */
+  setInterval(() => { rotateHint(0); rotateHint(1); rotateHint(2); }, 10000);
 })();
 
 document.getElementById('page-questions').addEventListener('click', e => {
