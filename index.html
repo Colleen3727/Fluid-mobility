@@ -94,10 +94,6 @@ window.generateNickname = function generateNickname(q1, q2, q3) {
 }
 
 /* ── clear all existing Firebase users (called once on load) ── */
-async function clearStaleUsers() {
-  try { await remove(ref(db, 'users')); } catch(e) {}
-}
-
 /* ── register presence ── */
 async function registerPresence() {
   /* wait for onboarding data */
@@ -131,12 +127,21 @@ async function registerPresence() {
 
   /* expose uid + profile for globe rendering */
   window._fvMyUid  = meRef.key;
+  window._fvMyRef  = meRef;       /* keep ref so nickname can be updated live */
+  window._fvMyData = meData;      /* keep data so updates preserve all fields */
   window._fvMyLat  = geo.lat;
   window._fvMyLon  = geo.lon;
   window._fvMyTags = tags;
   window._fvProfile = { nickname };
   return meRef.key;
 }
+
+/* call this whenever nickname changes so Firebase updates immediately */
+window.fbUpdateNickname = function(newNickname) {
+  if (!window._fvMyRef) return;
+  try { set(window._fvMyRef, Object.assign({}, window._fvMyData || {}, { nickname: newNickname })); } catch(e) {}
+  if (window._fvProfile) window._fvProfile.nickname = newNickname;
+};
 
 /* ── real-time messaging ── */
 function chatId(uidA, uidB) {
@@ -865,7 +870,6 @@ document.querySelectorAll('.globe-tab').forEach(btn => {
 
 /* ── boot ── */
 (async () => {
-  await clearStaleUsers();   /* remove all stale users from previous sessions */
   await registerPresence();
 
   listenUsers(users => {
@@ -4286,6 +4290,8 @@ document.getElementById('install-close').addEventListener('click', () => {
       if (id === 'profile-name') {
         const h = document.getElementById('profile-handle');
         h.textContent = el.value ? '@' + el.value.toLowerCase().replace(/\s+/g,'') : '@persona';
+        /* update Firebase in real-time so other users see the new name immediately */
+        if (window.fbUpdateNickname) window.fbUpdateNickname(el.value);
       }
       save(state);
     });
