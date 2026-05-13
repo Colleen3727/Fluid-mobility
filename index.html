@@ -5020,9 +5020,15 @@ document.addEventListener('DOMContentLoaded', function () {
             if (renderedIds.has(m.id)) return;
             renderedIds.add(m.id);
             const side = m.from === window._fvMyUid ? 'mine' : 'theirs';
+            /* skip rendering own messages — already shown locally on send */
+            if (side === 'mine') {
+              if (window.updateConvoLastMsg) window.updateConvoLastMsg(p.uid, m.media ? '📷 Media' : m.text);
+              resetSilenceTimer();
+              return;
+            }
             addBubble(side, m.text, m.ts, m.media, m.mediaType);
             if (window.updateConvoLastMsg) window.updateConvoLastMsg(p.uid, m.media ? '📷 Media' : m.text);
-            resetSilenceTimer(); /* any message resets the 30s clock */
+            resetSilenceTimer();
           });
         });
         resetSilenceTimer(); /* start timer when chat opens */
@@ -5161,15 +5167,25 @@ document.addEventListener('DOMContentLoaded', function () {
     /* check daily limit */
     if (!canSendMessage(chatPersona)) return;
 
+    /* clear input immediately so user can type next message */
     chatInput.value = '';
-    /* keep keyboard open on mobile after send */
-    chatInput.focus();
+
+    /* keep keyboard open on iOS — requestAnimationFrame avoids dismiss/re-open flicker */
+    requestAnimationFrame(() => { chatInput.focus(); });
 
     recordMessageSent(chatPersona);
+    updateLimitUI(chatPersona);
 
     if (chatPersona.uid) {
-      /* real user — write to Firebase; onValue listener will render it back */
       if (!window._fvMyUid) return;
+      /* render locally immediately — don't wait for Firebase roundtrip */
+      const localId = 'local_' + Date.now();
+      if (!renderedIds.has(localId)) {
+        renderedIds.add(localId);
+        addBubble('mine', text, Date.now());
+        if (window.updateConvoLastMsg) window.updateConvoLastMsg(chatPersona.uid, text);
+      }
+      /* also pre-register the Firebase message id once we know it */
       window.fbSendMessage(chatPersona.uid, text);
       resetSilenceTimer();
     } else {
@@ -5181,7 +5197,10 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   chatSend.addEventListener('click', sendMessage);
-  chatInput.addEventListener('keydown', e => { if (e.key === 'Enter') sendMessage(); });
+  /* use 'keydown' with Enter but allow Shift+Enter for newline */
+  chatInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+  });
 
   /* ── file attach ── */
   chatAttach.addEventListener('click', () => chatFileInput.click());
