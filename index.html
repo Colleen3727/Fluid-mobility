@@ -3522,17 +3522,16 @@ function shuffle(arr) {
   const CW = Math.round(vw * 0.88), CH = 180;
   canvas.width = CW; canvas.height = CH;
   canvas.style.width = CW + 'px'; canvas.style.height = CH + 'px';
-  const RING_WORDS = ['Fluid','·','Mobility','·','Fluid','·','Mobility','·','Fluid','·','Mobility','·',
-                      'Fluid','·','Mobility','·','Fluid','·','Mobility','·','Fluid','·','Mobility','·'];
-  const RING_N = RING_WORDS.length;
   const CX = CW/2;
-  /* three rings: slightly different radii + colour */
   /* three rings stacked vertically — different cy, rx, ry so they sit
      at different heights and only lightly graze each other             */
   const RINGS = [
-    { rx: CW*0.46, ry: CW*0.085, cy: CH*0.22, offset: 0,     color: '#6aadae', baseOp: 1.00, sizeM: 1.00, extraBlur: 0   }, /* primary teal, top    */
-    { rx: CW*0.42, ry: CW*0.07,  cy: CH*0.50, offset: 0.14,  color: '#c0455e', baseOp: 0.65, sizeM: 0.75, extraBlur: 1.2 }, /* rose, mid, smaller   */
-    { rx: CW*0.44, ry: CW*0.075, cy: CH*0.78, offset: -0.10, color: '#8b6914', baseOp: 0.55, sizeM: 0.82, extraBlur: 0.7 }, /* gold, lower, mid     */
+    { rx: CW*0.46, ry: CW*0.085, cy: CH*0.22, offset: 0,     color: '#6aadae', baseOp: 1.00, sizeM: 1.00, extraBlur: 0,
+      words: ['Fluid','·','Mobility','·','Fluid','·','Mobility','·','Fluid','·','Mobility','·','Fluid','·','Mobility','·'] },
+    { rx: CW*0.42, ry: CW*0.07,  cy: CH*0.50, offset: 0.14,  color: '#c0455e', baseOp: 0.65, sizeM: 0.75, extraBlur: 1.2,
+      words: ['Your','·','Persona','·','Your','·','Persona','·','Your','·','Persona','·','Your','·','Persona','·'] },
+    { rx: CW*0.44, ry: CW*0.075, cy: CH*0.78, offset: -0.10, color: '#c8a020', baseOp: 0.55, sizeM: 0.82, extraBlur: 0.7,
+      words: ['Mirroring','·','Identities','·','Mirroring','·','Identities','·','Mirroring','·','Identities','·'] },
   ];
   let ringAngle    = 0;
   let ringAutoSpin = true;
@@ -3762,13 +3761,14 @@ function shuffle(arr) {
     /* collect all items from all rings, sort by depth so back items render first */
     const allItems = [];
     RINGS.forEach(ring => {
-      for (let i = 0; i < RING_N; i++) {
-        const theta = (2 * Math.PI * i / RING_N) + ringAngle + ring.offset;
+      const ringWords = ring.words;
+      for (let i = 0; i < ringWords.length; i++) {
+        const theta = (2 * Math.PI * i / ringWords.length) + ringAngle + ring.offset;
         const x = CX + ring.rx * Math.cos(theta);
         const y = ring.cy + ring.ry * Math.sin(theta);
         const depth = Math.sin(theta), t = (depth + 1) / 2;
         allItems.push({
-          word: RING_WORDS[i], x, y, depth,
+          word: ringWords[i], x, y, depth,
           scale: (0.55 + 0.45*t) * ring.sizeM,
           op:    (0.28 + 0.72*t) * ring.baseOp,
           blur:  (1 - t) * 2.0 + ring.extraBlur,
