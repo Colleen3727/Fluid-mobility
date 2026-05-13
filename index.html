@@ -4160,11 +4160,24 @@ document.getElementById('btn-submit').addEventListener('click', () => {
     ob.q2   = (document.getElementById('q-answer-2').value || '').trim();
     ob.q3   = (document.getElementById('q-answer-3').value || '').trim();
     ob.tags = [...document.querySelectorAll('#page-questions .ob-tag.selected')].map(t => t.dataset.tag);
+
     /* auto-generate nickname from answers */
     if (window.generateNickname) {
       ob.nickname = window.generateNickname(ob.q1, ob.q2, ob.q3);
     }
     localStorage.setItem('fv-onboarding', JSON.stringify(ob));
+
+    /* auto-fill profile fields from answers */
+    const profile = JSON.parse(localStorage.getItem('fv-profile-v1')) || {};
+    /* only fill if user hasn't manually set them yet */
+    if (!profile['profile-name'])        profile['profile-name']       = ob.nickname || '';
+    if (!profile['profile-bio'])         profile['profile-bio']        = ob.q1 || '';
+    if (!profile['profile-influences'])  profile['profile-influences'] = ob.q2 || '';
+    if (!profile['profile-era'])         profile['profile-era']        = ob.q3 || '';
+    localStorage.setItem('fv-profile-v1', JSON.stringify(profile));
+
+    /* update Firebase nickname immediately */
+    if (window.fbUpdateNickname && ob.nickname) window.fbUpdateNickname(ob.nickname);
   } catch(e) {}
   goTo('page-home');
   document.getElementById('nav-bar').classList.add('visible');
