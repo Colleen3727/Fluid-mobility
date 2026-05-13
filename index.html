@@ -4765,12 +4765,15 @@ document.addEventListener('DOMContentLoaded', function () {
     if (!chatPersona || !chatPersona.uid) return;
     silenceTimer = setTimeout(() => {
       if (!chatPersona || !chatPersona.uid) return;
+      /* stop if daily limit already reached */
+      if (!canSendMessage(chatPersona)) return;
       const msg = genericReplies[silenceFillIdx % genericReplies.length];
       silenceFillIdx++;
       showTyping();
       setTimeout(() => {
         hideTyping();
         addBubble('theirs', msg, Date.now());
+        recordMessageSent(chatPersona);
         resetSilenceTimer();
       }, 900 + msg.length * 18);
     }, 30000);
@@ -4843,6 +4846,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     chatOverlay.classList.remove('hidden');
     chatInput.focus();
+    updateLimitUI(p);
   }
 
   function closeChat() {
@@ -4870,18 +4874,83 @@ document.addEventListener('DOMContentLoaded', function () {
     window.visualViewport.addEventListener('scroll', adjustForKeyboard);
   }
 
+  /* ── daily message limit: 10 messages per conversation per day ── */
+  const MSG_LIMIT = 10;
+
+  function limitKey(persona) {
+    const id = persona.uid || persona.label || persona.name || 'unknown';
+    return 'fv-msglimit-' + id;
+  }
+
+  function getLimitData(persona) {
+    try { return JSON.parse(localStorage.getItem(limitKey(persona))) || {}; } catch { return {}; }
+  }
+
+  function saveLimitData(persona, data) {
+    localStorage.setItem(limitKey(persona), JSON.stringify(data));
+  }
+
+  function getTodayKey() {
+    const d = new Date();
+    return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+  }
+
+  function canSendMessage(persona) {
+    const data = getLimitData(persona);
+    const today = getTodayKey();
+    const count = (data.day === today) ? (data.count || 0) : 0;
+    return count < MSG_LIMIT;
+  }
+
+  function recordMessageSent(persona) {
+    const data = getLimitData(persona);
+    const today = getTodayKey();
+    const count = (data.day === today) ? (data.count || 0) : 0;
+    saveLimitData(persona, { day: today, count: count + 1 });
+    updateLimitUI(persona);
+  }
+
+  function updateLimitUI(persona) {
+    const data = getLimitData(persona);
+    const today = getTodayKey();
+    const count = (data.day === today) ? (data.count || 0) : 0;
+    const remaining = Math.max(0, MSG_LIMIT - count);
+    const bar = document.getElementById('chat-limit-bar');
+    if (!bar) return;
+    if (remaining === 0) {
+      bar.textContent = '— 10 messages reached · returns in 24 hours —';
+      bar.style.display = 'block';
+      chatInput.disabled = true;
+      chatSend.disabled = true;
+      chatInput.style.opacity = '0.4';
+    } else {
+      bar.textContent = remaining <= 3 ? `— ${remaining} message${remaining===1?'':'s'} left today —` : '';
+      bar.style.display = remaining <= 3 ? 'block' : 'none';
+      chatInput.disabled = false;
+      chatSend.disabled = false;
+      chatInput.style.opacity = '';
+    }
+  }
+
   /* ── send ── */
   function sendMessage() {
     const text = chatInput.value.trim();
     if (!text || !chatPersona) return;
+
+    /* check daily limit */
+    if (!canSendMessage(chatPersona)) return;
+
     chatInput.value = '';
+    /* keep keyboard open on mobile after send */
+    chatInput.focus();
+
+    recordMessageSent(chatPersona);
 
     if (chatPersona.uid) {
       /* real user — write to Firebase; onValue listener will render it back */
-      if (!window._fvMyUid) return; /* uid not ready, drop silently */
+      if (!window._fvMyUid) return;
       window.fbSendMessage(chatPersona.uid, text);
-      resetSilenceTimer(); /* reset 30s clock on send */
-      /* don't render locally — Firebase listener will echo it back */
+      resetSilenceTimer();
     } else {
       /* fake user — render locally + AI reply */
       addBubble('mine', text, Date.now());
@@ -5064,6 +5133,7 @@ if ('serviceWorker' in navigator) {
     <button data-emoji="👏">👏</button>
     <button data-emoji="🔥">🔥</button>
   </div>
+  <div id="chat-limit-bar" style="display:none;text-align:center;font-family:'Viaoda Libre',serif;font-size:10px;letter-spacing:0.18em;color:var(--ink-faint);padding:6px 16px 2px;"></div>
   <div class="chat-input-bar">
     <input type="file" id="chat-file-input" accept="image/*,video/*" style="display:none">
     <button class="chat-attach" id="chat-attach" title="Send photo / video">
