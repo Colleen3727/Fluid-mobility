@@ -368,8 +368,17 @@ function extractKeywords(text) {
   return [...new Set([...en, ...cjk])];
 }
 
-/* ── combined match score: tags + text keywords → 0-100 percentage ── */
-function matchScore(tagsA, tagsB, textA, textB) {
+/* ── geo proximity score 0-1: nearby=1, far=0, uses soft exponential decay ── */
+function geoScore(lat1, lon1, lat2, lon2) {
+  if (!lat1 && !lon1) return null;
+  if (!lat2 && !lon2) return null;
+  const dist = haversine(lat1, lon1, lat2, lon2);
+  // half-score at 2000 km, near-zero beyond ~15000 km
+  return Math.exp(-dist / 2000);
+}
+
+/* ── combined match score: tags + text + geo → 0-100 percentage ── */
+function matchScore(tagsA, tagsB, textA, textB, latA, lonA, latB, lonB) {
   // --- tag similarity (Jaccard) ---
   const a = tagsA || [], b = tagsB || [];
   const tagUnion = new Set([...a, ...b]).size;
@@ -383,16 +392,23 @@ function matchScore(tagsA, tagsB, textA, textB) {
   const kwIntersect = kwA.filter(w => new Set(kwB).has(w)).length;
   const kwScore = kwUnion > 0 ? kwIntersect / kwUnion : null;
 
-  // combine: weight tags 60%, text 40%; fall back if one is missing
+  // --- geo proximity ---
+  const geo = geoScore(latA, lonA, latB, lonB);
+
+  // weights: tags 40%, text 35%, geo 25%
+  // if a dimension is missing, redistribute its weight to the others
+  const dims = [
+    { v: tagScore, w: 0.40 },
+    { v: kwScore,  w: 0.35 },
+    { v: geo,      w: 0.25 },
+  ].filter(d => d.v !== null);
+
   let raw;
-  if (tagScore !== null && kwScore !== null) {
-    raw = tagScore * 0.6 + kwScore * 0.4;
-  } else if (tagScore !== null) {
-    raw = tagScore;
-  } else if (kwScore !== null) {
-    raw = kwScore;
+  if (dims.length === 0) {
+    raw = 0.52;
   } else {
-    raw = 0.52; // both empty → neutral ~62%
+    const totalW = dims.reduce((s, d) => s + d.w, 0);
+    raw = dims.reduce((s, d) => s + d.v * (d.w / totalW), 0);
   }
 
   return Math.round(20 + raw * 80);
@@ -896,7 +912,7 @@ function renderList(tab) {
 
   const others = allUsers.filter(u => u.uid !== window._fvMyUid);
 
-  const getScore = u => matchScore(myTags, u.tags||[], myTexts, [u.q1||'', u.q2||'', u.q3||'']);
+  const getScore = u => matchScore(myTags, u.tags||[], myTexts, [u.q1||'', u.q2||'', u.q3||''], myLat, myLon, u.lat||0, u.lon||0);
 
   let sorted;
   if (tab === 'near') {
