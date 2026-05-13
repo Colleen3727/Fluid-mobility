@@ -15,7 +15,7 @@
    FIREBASE — realtime presence + globe
 ══════════════════════════════════════════ */
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-import { getDatabase, ref, set, get, onValue, off, onDisconnect, push, remove, serverTimestamp, query, orderByChild, limitToLast, onChildAdded, startAfter }
+import { getDatabase, ref, set, get, onValue, off, onDisconnect, push, remove, serverTimestamp, query, orderByChild, limitToLast, onChildAdded, onChildChanged, onChildRemoved, startAfter }
   from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js';
 
 const firebaseConfig = {
@@ -33,6 +33,18 @@ const db  = getDatabase(app);
 
 /* ── get location: browser GPS first, IP APIs as fallback ── */
 async function getGeo() {
+  /* cache geo for 30 min so repeat visits skip the network call */
+  try {
+    const cached = JSON.parse(localStorage.getItem('fv-geo') || 'null');
+    if (cached && cached.ts && Date.now() - cached.ts < 30 * 60 * 1000 && cached.lat) {
+      return cached;
+    }
+  } catch {}
+  function saveGeo(g) {
+    try { localStorage.setItem('fv-geo', JSON.stringify({ ...g, ts: Date.now() })); } catch {}
+    return g;
+  }
+
   /* 1. browser Geolocation — most accurate, works even behind VPN/firewall */
   const fromBrowser = () => new Promise(resolve => {
     if (!navigator.geolocation) { resolve(null); return; }
@@ -53,7 +65,7 @@ async function getGeo() {
       ]);
       if (d && d.city) { browserGeo.city = d.city; browserGeo.country = d.country || ''; }
     } catch {}
-    return browserGeo;
+    return saveGeo(browserGeo);
   }
 
   /* 2. IP API fallbacks */
@@ -74,7 +86,7 @@ async function getGeo() {
   for (const fn of apis) {
     try {
       const geo = await Promise.race([fn(), new Promise((_, rej) => setTimeout(rej, 4000))]);
-      if (geo && geo.lat) return geo;
+      if (geo && geo.lat) return saveGeo(geo);
     } catch {}
   }
 
@@ -278,36 +290,60 @@ window.fbListenChat = function(otherUid, cb) {
   return () => { if (newUnsub) newUnsub(); };
 };
 
-/* listen for ANY new incoming message across all chats to show unread badge */
+/* listen for ANY new incoming message across all chats to show unread badge.
+   Strategy: watch messages/ with onChildAdded (one event per chat room created,
+   NOT per message) to discover new conversations, then subscribe per-room. */
 window.fbListenInbox = function(cb) {
   const myUid = window._fvMyUid;
   if (!myUid) return () => {};
-  const inboxRef = ref(db, 'messages');
-  const unsub = onValue(inboxRef, snap => {
-    const unread = [];
-    snap.forEach(chatSnap => {
-      const [a, b] = chatSnap.key.split('__');
-      if (a !== myUid && b !== myUid) return;
-      const otherUid = a === myUid ? b : a;
-      chatSnap.forEach(msgSnap => {
-        const m = msgSnap.val();
-        if (m.from !== myUid) unread.push({ id: msgSnap.key, chatKey: chatSnap.key, otherUid, ...m });
-      });
+  const unsubs = [];
+  const unreadMsgs = {};   // otherUid → [msg, ...]
+  const watching = new Set();
+
+  function subscribeRoom(cid, otherUid) {
+    if (watching.has(cid)) return;
+    watching.add(cid);
+    /* only fetch new messages (limitToLast(1) skips history) */
+    const newRef = query(ref(db, 'messages/' + cid), orderByChild('ts'), limitToLast(1));
+    const unsub = onChildAdded(newRef, snap => {
+      const m = { id: snap.key, chatKey: cid, otherUid, ...snap.val() };
+      if (m.from === myUid) return; // ignore own messages
+      if (!unreadMsgs[otherUid]) unreadMsgs[otherUid] = [];
+      if (!unreadMsgs[otherUid].some(x => x.id === m.id)) {
+        unreadMsgs[otherUid].push(m);
+        cb(Object.values(unreadMsgs).flat());
+      }
     });
-    cb(unread);
+    unsubs.push(unsub);
+  }
+
+  /* discover chat rooms as they appear (only rooms this user is part of) */
+  const roomsRef = ref(db, 'messages');
+  const discoverUnsub = onChildAdded(roomsRef, snap => {
+    const [a, b] = snap.key.split('__');
+    if (a !== myUid && b !== myUid) return;
+    const otherUid = a === myUid ? b : a;
+    subscribeRoom(snap.key, otherUid);
   });
-  return unsub;
+  unsubs.push(discoverUnsub);
+
+  /* expose so openChat() can register a convo proactively */
+  window._fbWatchConvo = function(otherUid) {
+    const cid = [myUid, otherUid].sort().join('__');
+    subscribeRoom(cid, otherUid);
+  };
+
+  return () => unsubs.forEach(u => u && u());
 };
 
-/* ── listen to all users ── */
+/* ── listen to all users — incremental updates, not full-list download ── */
 function listenUsers(cb) {
-  onValue(ref(db, 'users'), snap => {
-    const users = [];
-    snap.forEach(child => {
-      users.push({ uid: child.key, ...child.val() });
-    });
-    cb(users);
-  });
+  const usersMap = {};
+  function emit() { cb(Object.values(usersMap)); }
+  const usersRef = ref(db, 'users');
+  onChildAdded(usersRef, snap => { usersMap[snap.key] = { uid: snap.key, ...snap.val() }; emit(); });
+  onChildChanged(usersRef, snap => { usersMap[snap.key] = { uid: snap.key, ...snap.val() }; emit(); });
+  onChildRemoved(usersRef, snap => { delete usersMap[snap.key]; emit(); });
 }
 
 /* ── distance between two lat/lon (km) ── */
@@ -5026,10 +5062,16 @@ document.addEventListener('DOMContentLoaded', function () {
 
   /* ── fake-user AI replies ── */
   function sendAiReply() {
+    if (!chatPersona || !canSendMessage(chatPersona)) return;
     const msg = genericReplies[replyIdx % genericReplies.length];
     replyIdx++;
     showTyping();
-    setTimeout(() => { hideTyping(); addBubble('theirs', msg, Date.now()); }, 900 + msg.length * 18);
+    setTimeout(() => {
+      hideTyping();
+      if (!canSendMessage(chatPersona)) return;
+      addBubble('theirs', msg, Date.now());
+      recordMessageSent(chatPersona);
+    }, 900 + msg.length * 18);
   }
 
   /* ── silence-filler: after 30s of no messages, AI continues the conversation ── */
@@ -5080,6 +5122,8 @@ document.addEventListener('DOMContentLoaded', function () {
     if (isReal) {
       /* ── REAL USER: subscribe to Firebase messages ── */
       if (unsubChat) { unsubChat(); unsubChat = null; }
+      /* also tell inbox listener to watch this conversation */
+      if (window._fbWatchConvo) window._fbWatchConvo(p.uid);
 
       function subscribeToChat() {
         unsubChat = window.fbListenChat(p.uid, msgs => {
