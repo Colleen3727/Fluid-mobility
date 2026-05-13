@@ -5125,21 +5125,24 @@ document.addEventListener('DOMContentLoaded', function () {
       if (window._fbWatchConvo) window._fbWatchConvo(p.uid);
 
       function subscribeToChat() {
-        unsubChat = window.fbListenChat(p.uid, msgs => {
+        let historyLoaded = false;
+        unsubChat = window.fbListenChat(p.uid, (msgs, isHistory) => {
           msgs.forEach(m => {
             if (renderedIds.has(m.id)) return;
             renderedIds.add(m.id);
             const side = m.from === window._fvMyUid ? 'mine' : 'theirs';
-            /* skip rendering own messages — already shown locally on send */
-            if (side === 'mine') {
+            /* during history load render own messages too (they were cleared on open) */
+            /* for new real-time messages, skip own — already shown locally on send */
+            if (side === 'mine' && historyLoaded) {
               if (window.updateConvoLastMsg) window.updateConvoLastMsg(p.uid, m.media ? '📷 Media' : m.text);
               resetSilenceTimer();
               return;
             }
             addBubble(side, m.text, m.ts, m.media, m.mediaType);
             if (window.updateConvoLastMsg) window.updateConvoLastMsg(p.uid, m.media ? '📷 Media' : m.text);
-            resetSilenceTimer();
+            if (side === 'theirs') resetSilenceTimer();
           });
+          if (!historyLoaded) historyLoaded = true;
         });
         resetSilenceTimer(); /* start timer when chat opens */
       }
