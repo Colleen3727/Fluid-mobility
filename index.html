@@ -356,11 +356,16 @@ function haversine(lat1, lon1, lat2, lon2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
 
-/* ── tag match score ── */
+/* ── tag match score — returns 0-100 percentage ── */
 function matchScore(tagsA, tagsB) {
-  if (!tagsA?.length || !tagsB?.length) return 0;
-  const setB = new Set(tagsB);
-  return tagsA.filter(t => setB.has(t)).length;
+  const a = tagsA || [], b = tagsB || [];
+  if (!a.length && !b.length) return 72; // both have no tags → neutral
+  const setA = new Set(a), setB = new Set(b);
+  const intersection = a.filter(t => setB.has(t)).length;
+  const union = new Set([...a, ...b]).size;
+  const jaccard = union > 0 ? intersection / union : 0;
+  // scale to 20–100 range so everyone has at least some affinity
+  return Math.round(20 + jaccard * 80);
 }
 
 /* ── continent outlines from Natural Earth 110m [lat,lon] ── */
@@ -892,7 +897,7 @@ function renderList(tab) {
       </div>
       ${tab === 'near'
         ? `<div class="globe-user-dist">${dist < 1 ? 'nearby' : dist < 1000 ? Math.round(dist)+' km' : (Math.round(dist/100)/10)+'k km'}</div>`
-        : `<div class="globe-user-match">${score} match${score !== 1 ? 'es' : ''}</div>`
+        : `<div class="globe-user-match">${score}% aupair</div>`
       }`;
     card.style.cursor = 'pointer';
     card.addEventListener('click', () => openGlobeUser(u));
