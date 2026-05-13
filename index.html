@@ -15,7 +15,7 @@
    FIREBASE — realtime presence + globe
 ══════════════════════════════════════════ */
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-import { getDatabase, ref, set, onValue, off, onDisconnect, push, remove, serverTimestamp, query, orderByChild, limitToLast }
+import { getDatabase, ref, set, onValue, off, onDisconnect, push, remove, serverTimestamp, query, orderByChild, limitToLast, onChildAdded }
   from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js';
 
 const firebaseConfig = {
@@ -228,12 +228,11 @@ window.fbListenChat = function(otherUid, cb) {
   const myUid = window._fvMyUid;
   if (!myUid || !otherUid) return () => {};
   const cid = chatId(myUid, otherUid);
+  /* onChildAdded fires once per existing message then once per new message —
+     no full reload, no flicker. cb receives a single message object. */
   const chatRef = query(ref(db, 'messages/' + cid), orderByChild('ts'), limitToLast(200));
-  /* onValue returns an unsubscribe function in Firebase v10 */
-  const unsub = onValue(chatRef, snap => {
-    const msgs = [];
-    snap.forEach(child => msgs.push({ id: child.key, ...child.val() }));
-    cb(msgs);
+  const unsub = onChildAdded(chatRef, snap => {
+    cb([{ id: snap.key, ...snap.val() }]);
   });
   return unsub;
 };
