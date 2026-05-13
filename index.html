@@ -96,22 +96,25 @@ window.generateNickname = function generateNickname(q1, q2, q3) {
 /* ── clear all existing Firebase users (called once on load) ── */
 /* ── register presence ── */
 async function registerPresence() {
-  /* wait for onboarding data */
   let profile = {};
   try { profile = JSON.parse(localStorage.getItem('fv-onboarding')) || {}; } catch {}
   let pName = {};
   try { pName = JSON.parse(localStorage.getItem('fv-profile-v1')) || {}; } catch {}
 
-  /* auto-generate nickname from question answers if not manually set */
   const generated = generateNickname(profile.q1 || '', profile.q2 || '', profile.q3 || '');
   const nickname = pName['profile-name'] || profile.nickname || generated;
   const tags     = profile.tags || [];
 
   const geo = await getGeo();
 
-  const usersRef = ref(db, 'users');
-  const meRef    = push(usersRef);
+  /* use a stable uid stored in localStorage so re-opens update the same node */
+  let myUid = localStorage.getItem('fv-uid');
+  if (!myUid) {
+    myUid = 'u_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+    localStorage.setItem('fv-uid', myUid);
+  }
 
+  const meRef  = ref(db, 'users/' + myUid);
   const meData = {
     nickname,
     tags,
@@ -123,17 +126,16 @@ async function registerPresence() {
   };
 
   await set(meRef, meData);
-  onDisconnect(meRef).remove();   /* auto-remove on disconnect */
+  onDisconnect(meRef).remove();
 
-  /* expose uid + profile for globe rendering */
-  window._fvMyUid  = meRef.key;
-  window._fvMyRef  = meRef;       /* keep ref so nickname can be updated live */
-  window._fvMyData = meData;      /* keep data so updates preserve all fields */
+  window._fvMyUid  = myUid;
+  window._fvMyRef  = meRef;
+  window._fvMyData = meData;
   window._fvMyLat  = geo.lat;
   window._fvMyLon  = geo.lon;
   window._fvMyTags = tags;
   window._fvProfile = { nickname };
-  return meRef.key;
+  return myUid;
 }
 
 /* call this whenever nickname changes so Firebase updates immediately */
