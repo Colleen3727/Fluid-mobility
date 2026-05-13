@@ -405,13 +405,13 @@ function matchScore(tagsA, tagsB, textA, textB, latA, lonA, latB, lonB) {
 
   let raw;
   if (dims.length === 0) {
-    raw = 0.52;
+    raw = 0.50;
   } else {
     const totalW = dims.reduce((s, d) => s + d.w, 0);
     raw = dims.reduce((s, d) => s + d.v * (d.w / totalW), 0);
   }
 
-  return Math.round(20 + raw * 80);
+  return Math.round(raw * 100);
 }
 
 /* ── continent outlines from Natural Earth 110m [lat,lon] ── */
