@@ -83,14 +83,31 @@ async function getGeo() {
 
 /* ── generate nickname from 3 answers ── */
 window.generateNickname = function generateNickname(q1, q2, q3) {
-  const all = [q1, q2, q3].join(' ').toLowerCase();
-  /* extract meaningful words (skip short/common words) */
-  const stop = new Set(['the','a','an','and','or','but','i','me','my','we','you','it','is','was','are','be','to','of','in','on','at','for','with','that','this','have','has','do','did','not','so','if','as','by','he','she','they','who','can','will','just','from','all','when','what','how','there','their','its','our','your']);
-  const words = all.replace(/[^a-z\s]/g,' ').split(/\s+/).filter(w => w.length > 3 && !stop.has(w));
-  /* pick 1–2 distinctive words and capitalize */
-  const picked = [...new Set(words)].slice(0, 2);
-  if (picked.length === 0) return 'Visitor';
-  return picked.map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+  const answers = [q1, q2, q3].map(s => (s || '').trim());
+  const all = answers.join(' ');
+
+  /* try English words first */
+  const stop = new Set(['the','a','an','and','or','but','i','me','my','we','you','it','is','was','are','be','to','of','in','on','at','for','with','that','this','have','has','do','did','not','so','if','as','by','he','she','they','who','can','will','just','from','all','when','what','how','there','their','its','our','your','want','more','wanna','dont','im','its','yes','no','idk']);
+  const enWords = all.toLowerCase().replace(/[^a-z\s]/g,' ').split(/\s+/).filter(w => w.length > 2 && !stop.has(w));
+  const enUniq = [...new Set(enWords)];
+
+  if (enUniq.length >= 1) {
+    /* pick up to 2 words, prefer longer ones */
+    const picked = enUniq.sort((a,b) => b.length - a.length).slice(0, 2);
+    return picked.map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+  }
+
+  /* fallback: extract CJK characters — take first 2-4 chars from q1 */
+  const cjk = all.replace(/[^一-鿿぀-ヿ가-힯]/g, '');
+  if (cjk.length >= 1) {
+    return cjk.slice(0, 4);
+  }
+
+  /* last resort: use first few chars of q1 */
+  const raw = answers[0] || answers[1] || answers[2] || '';
+  if (raw.length > 0) return raw.slice(0, 12).trim();
+
+  return 'Visitor';
 }
 
 /* ── clear all existing Firebase users (called once on load) ── */
@@ -4005,6 +4022,19 @@ function goTo(id, direction = 'up') {
   to.classList.add('fade-in');
   setTimeout(() => to.classList.remove('fade-in'), 800);
   currentPage = id;
+
+  /* when navigating to profile, refresh fields from latest localStorage */
+  if (id === 'page-profile') {
+    try {
+      const st = JSON.parse(localStorage.getItem('fv-profile-v1')) || {};
+      ['profile-name','profile-bio','profile-era','profile-influences','profile-item'].forEach(fid => {
+        const el = document.getElementById(fid);
+        if (el && st[fid]) el.value = st[fid];
+      });
+      const h = document.getElementById('profile-handle');
+      if (h && st['profile-name']) h.textContent = '@' + st['profile-name'].toLowerCase().replace(/\s+/g,'');
+    } catch(e) {}
+  }
 
   /* update nav + slide pill */
   const pill = document.getElementById('nav-pill');
