@@ -3902,14 +3902,14 @@ function shuffle(arr) {
     if (!isDragging) return;
     const x = e.touches ? e.touches[0].clientX : e.clientX;
     velX = x - lastX; lastX = x;
-    const delta = (x - startX) * 0.38;
+    const delta = Math.min(0, (x - startX) * 0.38); /* only left swipe (negative delta) */
     cylAngle = dragStart + delta;
     targetAngle = cylAngle;
   }
   function onUp() {
     if (!isDragging) return;
     isDragging = false;
-    targetAngle = snapAngle(cylAngle + velX * 1.6);
+    targetAngle = snapAngle(cylAngle + Math.min(0, velX * 1.6)); /* only left momentum */
   }
 
   /* tap front card → open detail */
