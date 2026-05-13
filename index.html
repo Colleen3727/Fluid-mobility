@@ -5234,24 +5234,68 @@ document.addEventListener('DOMContentLoaded', function () {
     img.src = objUrl;
   });
 
-  /* ── inbox listener: unread badge on Messages nav tab ── */
+  /* ── inbox listener: unread badge + AI auto-reply after 30s silence ── */
+  const aiReplies = [
+    "Still here, just thinking.",
+    "Give me a moment.",
+    "I'm around — what's on your mind?",
+    "Sorry, got distracted. Tell me more.",
+    "I was just thinking about that, actually.",
+    "Interesting. Say more?",
+    "I hear you.",
+    "That landed somewhere.",
+    "I'm listening, even when I'm quiet.",
+    "You have my attention.",
+  ];
+  let aiReplyIdx = 0;
+  /* per-sender timers: uid → { timer, lastMsgId } */
+  const autoReplyTimers = {};
+  let myLastSentTs = {};   /* uid → timestamp of my last sent message */
+
+  function scheduleAiReply(otherUid) {
+    if (autoReplyTimers[otherUid]) clearTimeout(autoReplyTimers[otherUid].timer);
+    autoReplyTimers[otherUid] = {
+      timer: setTimeout(() => {
+        /* check if I replied manually in the last 30s */
+        const myLast = myLastSentTs[otherUid] || 0;
+        if (Date.now() - myLast < 30000) return; /* I replied — skip */
+        if (!window.fbSendMessage) return;
+        const msg = aiReplies[aiReplyIdx % aiReplies.length];
+        aiReplyIdx++;
+        window.fbSendMessage(otherUid, msg);
+        /* reschedule so AI keeps responding if silence continues */
+        scheduleAiReply(otherUid);
+      }, 30000)
+    };
+  }
+
   function startInboxListener() {
     if (!window.fbListenInbox) return;
     let knownIds = new Set();
     window.fbListenInbox(msgs => {
-      let hasNew = false;
       msgs.forEach(m => {
         if (!knownIds.has(m.id || m.ts)) {
           knownIds.add(m.id || m.ts);
-          hasNew = true;
-          /* register the sender in the convo list */
           if (window.registerConvoByUid) window.registerConvoByUid(m.otherUid, m.text);
+          /* new incoming message — start/reset 30s AI reply timer */
+          scheduleAiReply(m.otherUid);
         }
       });
       const badge = document.getElementById('nav-mood');
       if (badge) badge.classList.toggle('has-unread', msgs.length > 0);
     });
   }
+
+  /* track my own sends so AI doesn't fire if I already replied */
+  const _origSend = window.fbSendMessage;
+  window.fbSendMessage = function(otherUid, text) {
+    myLastSentTs[otherUid] = Date.now();
+    if (autoReplyTimers[otherUid]) {
+      clearTimeout(autoReplyTimers[otherUid].timer);
+      delete autoReplyTimers[otherUid];
+    }
+    return _origSend && _origSend(otherUid, text);
+  };
 
   /* start inbox listener once Firebase uid is ready */
   const inboxPoll = setInterval(() => {
