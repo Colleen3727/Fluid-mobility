@@ -1854,6 +1854,103 @@ textarea.q-input { min-height: 60px; line-height: 1.6; }
 .profile-divider { display: none; }
 
 /* save badge */
+/* ── Portrait Studio (sketch tool) ── */
+.sketch-tool-card {
+  background: var(--paper);
+  border: 1px solid rgba(106,173,174,0.18);
+  border-radius: 18px;
+  padding: 20px 18px 18px;
+  margin-bottom: 16px;
+}
+.sketch-tool-desc {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--ink-faint);
+  margin: 4px 0 14px;
+  line-height: 1.6;
+}
+.sketch-drop-zone {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 3/4;
+  max-height: 340px;
+  border: 1.5px dashed rgba(106,173,174,0.35);
+  border-radius: 12px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  background: rgba(106,173,174,0.03);
+  transition: border-color 0.2s;
+}
+.sketch-drop-zone:hover { border-color: var(--teal); }
+.sketch-drop-label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-faint);
+  font-family: 'Viaoda Libre', serif;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+.sketch-drop-icon { font-size: 22px; color: var(--teal); opacity: 0.6; }
+#sketch-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover;
+}
+.sketch-controls { margin-top: 14px; display: flex; flex-direction: column; gap: 10px; }
+.sketch-ctrl-label {
+  font-size: 9px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.sketch-ctrl-label input[type=range] {
+  width: 100%;
+  accent-color: var(--teal);
+  height: 2px;
+  cursor: pointer;
+}
+.sketch-btn-row { display: flex; gap: 8px; margin-top: 4px; }
+.sketch-btn-ghost {
+  flex: 1;
+  padding: 9px 0;
+  border: 1px solid rgba(106,173,174,0.3);
+  border-radius: 20px;
+  background: none;
+  font-family: 'Viaoda Libre', serif;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: var(--ink-faint);
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s;
+}
+.sketch-btn-ghost:hover { border-color: var(--teal); color: var(--teal-dark); }
+.sketch-btn-dl {
+  flex: 1;
+  padding: 9px 0;
+  border: none;
+  border-radius: 20px;
+  background: var(--teal);
+  font-family: 'Viaoda Libre', serif;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: #fff;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+.sketch-btn-dl:hover { opacity: 0.85; }
+
 .profile-saved {
   font-size: 9px; letter-spacing: 0.3em; text-transform: uppercase;
   color: var(--teal); text-align: center; opacity: 0; transition: opacity 0.4s;
@@ -3165,6 +3262,32 @@ textarea.q-input { min-height: 60px; line-height: 1.6; }
       </div>
     </div>
 
+    <!-- ── sketch tool ── -->
+    <div class="sketch-tool-card" id="sketch-tool-card">
+      <div class="profile-section-label">Portrait Studio</div>
+      <p class="sketch-tool-desc">Upload a photo — render it as a sketch in the style of the archive.</p>
+      <div class="sketch-drop-zone" id="sketch-drop-zone">
+        <input type="file" id="sketch-input" accept="image/*" style="display:none">
+        <div class="sketch-drop-label" id="sketch-drop-label">
+          <span class="sketch-drop-icon">✦</span>
+          <span>drop or tap to upload</span>
+        </div>
+        <canvas id="sketch-canvas" style="display:none"></canvas>
+      </div>
+      <div class="sketch-controls" id="sketch-controls" style="display:none">
+        <label class="sketch-ctrl-label">Intensity
+          <input type="range" id="sketch-strength" min="1" max="8" value="4" step="0.5">
+        </label>
+        <label class="sketch-ctrl-label">Grain
+          <input type="range" id="sketch-grain" min="0" max="40" value="18" step="1">
+        </label>
+        <div class="sketch-btn-row">
+          <button class="sketch-btn-ghost" id="sketch-reset">↺ New photo</button>
+          <button class="sketch-btn-dl" id="sketch-dl">↓ Save</button>
+        </div>
+      </div>
+    </div>
+
     <div class="profile-saved" id="profile-saved">— saved —</div>
 
   </div>
@@ -4114,6 +4237,138 @@ document.getElementById('install-close').addEventListener('click', () => {
   const days = Math.max(1, Math.round((Date.now() - state.joinDate) / 86400000));
   const daysEl = document.getElementById('stat-days');
   if (daysEl) daysEl.textContent = days;
+})();
+
+/* ── PORTRAIT STUDIO (sketch filter) ── */
+(function () {
+  const dropZone  = document.getElementById('sketch-drop-zone');
+  const dropLabel = document.getElementById('sketch-drop-label');
+  const fileInput = document.getElementById('sketch-input');
+  const canvas    = document.getElementById('sketch-canvas');
+  const controls  = document.getElementById('sketch-controls');
+  const sliderStr = document.getElementById('sketch-strength');
+  const sliderGr  = document.getElementById('sketch-grain');
+  const btnReset  = document.getElementById('sketch-reset');
+  const btnDl     = document.getElementById('sketch-dl');
+  if (!dropZone) return;
+
+  let sourceImg = null;
+  const ctx = canvas.getContext('2d');
+
+  function applySketch() {
+    if (!sourceImg) return;
+    const W = canvas.width, H = canvas.height;
+    ctx.drawImage(sourceImg, 0, 0, W, H);
+
+    const imgData = ctx.getImageData(0, 0, W, H);
+    const d = imgData.data;
+
+    /* 1. desaturate */
+    for (let i = 0; i < d.length; i += 4) {
+      const g = d[i]*0.299 + d[i+1]*0.587 + d[i+2]*0.114;
+      d[i] = d[i+1] = d[i+2] = g;
+    }
+    ctx.putImageData(imgData, 0, 0);
+
+    /* 2. dodge-burn edge detection via two-pass blur difference */
+    const strength = parseFloat(sliderStr.value);
+    const blurAmt  = strength * 3;
+
+    /* draw blurred inverted copy onto temp canvas */
+    const tmp = document.createElement('canvas');
+    tmp.width = W; tmp.height = H;
+    const tc = tmp.getContext('2d');
+    tc.filter = `blur(${blurAmt}px)`;
+    tc.drawImage(canvas, 0, 0);
+
+    /* read both */
+    const base  = ctx.getImageData(0, 0, W, H).data;
+    const blur  = tc.getImageData(0, 0, W, H).data;
+    const out   = ctx.createImageData(W, H);
+    const od    = out.data;
+
+    for (let i = 0; i < base.length; i += 4) {
+      /* colour dodge: base / (1 - blur_inverted) */
+      const b  = blur[i] / 255;
+      const dv = b >= 1 ? 255 : Math.min(255, Math.round((base[i] / 255) / (1 - b) * 255));
+      /* pull toward paper tone (warm cream) */
+      const paper = 242;
+      const v = Math.round(dv * 0.88 + paper * 0.12);
+      od[i] = od[i+1] = od[i+2] = v;
+      od[i+3] = 255;
+    }
+    ctx.putImageData(out, 0, 0);
+
+    /* 3. grain overlay */
+    const grain = parseInt(sliderGr.value);
+    if (grain > 0) {
+      const gd = ctx.getImageData(0, 0, W, H);
+      const gp = gd.data;
+      for (let i = 0; i < gp.length; i += 4) {
+        const n = (Math.random() - 0.5) * grain;
+        gp[i] = Math.min(255, Math.max(0, gp[i] + n));
+        gp[i+1] = gp[i]; gp[i+2] = gp[i];
+      }
+      ctx.putImageData(gd, 0, 0);
+    }
+
+    /* 4. subtle warm paper tint */
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.fillStyle = 'rgba(240,232,218,0.18)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  function loadImage(file) {
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const img = new Image();
+      img.onload = () => {
+        sourceImg = img;
+        const MAX = 900;
+        const scale = Math.min(MAX / img.width, MAX / img.height, 1);
+        canvas.width  = Math.round(img.width  * scale);
+        canvas.height = Math.round(img.height * scale);
+        canvas.style.display = 'block';
+        dropLabel.style.display = 'none';
+        controls.style.display = 'flex';
+        applySketch();
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  dropZone.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => { if (fileInput.files[0]) loadImage(fileInput.files[0]); });
+
+  /* drag-and-drop */
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.style.borderColor = 'var(--teal)'; });
+  dropZone.addEventListener('dragleave', () => { dropZone.style.borderColor = ''; });
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.style.borderColor = '';
+    const f = e.dataTransfer.files[0];
+    if (f && f.type.startsWith('image/')) loadImage(f);
+  });
+
+  sliderStr.addEventListener('input', applySketch);
+  sliderGr.addEventListener('input', applySketch);
+
+  btnReset.addEventListener('click', () => {
+    sourceImg = null;
+    canvas.style.display = 'none';
+    dropLabel.style.display = 'flex';
+    controls.style.display = 'none';
+    fileInput.value = '';
+  });
+
+  btnDl.addEventListener('click', () => {
+    const a = document.createElement('a');
+    a.download = 'portrait-sketch.jpg';
+    a.href = canvas.toDataURL('image/jpeg', 0.92);
+    a.click();
+  });
 })();
 
 /* ── MESSAGES PAGE ── */
