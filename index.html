@@ -5297,13 +5297,18 @@ document.addEventListener('DOMContentLoaded', function () {
       timer: setTimeout(() => {
         /* check if I replied manually in the last 30s */
         const myLast = myLastSentTs[otherUid] || 0;
-        if (Date.now() - myLast < 30000) return; /* I replied — skip */
+        if (Date.now() - myLast < 30000) return;
         if (!window.fbSendMessage) return;
+        /* check daily limit before AI sends */
+        const fakePersona = { uid: otherUid };
+        if (typeof canSendMessage === 'function' && !canSendMessage(fakePersona)) return;
         const msg = aiReplies[aiReplyIdx % aiReplies.length];
         aiReplyIdx++;
         window.fbSendMessage(otherUid, msg);
-        /* reschedule so AI keeps responding if silence continues */
-        scheduleAiReply(otherUid);
+        if (typeof recordMessageSent === 'function') recordMessageSent(fakePersona);
+        /* do NOT reschedule — wait for the other side to reply first
+           the next incoming message from them will trigger scheduleAiReply again */
+        delete autoReplyTimers[otherUid];
       }, 30000)
     };
   }
