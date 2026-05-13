@@ -564,8 +564,8 @@ function initGlobe(users) {
           ? (isEquator ? 0.55 : 0.28) * (0.6 + 0.4 * avgZ)
           : (isEquator ? 0.14 : 0.07) * Math.max(0.2, 1 + avgZ * 2);
         const lw = front
-          ? (isEquator ? 1.4 : 0.7)
-          : (isEquator ? 0.6 : 0.35);
+          ? (isEquator ? 0.7 : 0.35)
+          : (isEquator ? 0.3 : 0.18);
         ctx.strokeStyle = `rgba(106,173,174,${alpha.toFixed(2)})`;
         ctx.lineWidth   = lw;
         ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
@@ -583,8 +583,8 @@ function initGlobe(users) {
           ? (isPrime ? 0.55 : 0.28) * (0.6 + 0.4 * avgZ)
           : (isPrime ? 0.14 : 0.07) * Math.max(0.2, 1 + avgZ * 2);
         const lw = front
-          ? (isPrime ? 1.4 : 0.7)
-          : (isPrime ? 0.6 : 0.35);
+          ? (isPrime ? 0.7 : 0.35)
+          : (isPrime ? 0.3 : 0.18);
         ctx.strokeStyle = `rgba(106,173,174,${alpha.toFixed(2)})`;
         ctx.lineWidth   = lw;
         ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
@@ -3293,7 +3293,7 @@ textarea.q-input { min-height: 60px; line-height: 1.6; }
     </svg>
   </div>
 
-  <div class="home-subtitle"><span style="color:#c0392b;opacity:1;font-weight:600;">your</span> persona, lavishly built, by you</div>
+  <div class="home-subtitle">your persona, lavishly built, by <span style="color:#c0392b;opacity:1;font-weight:600;">you</span></div>
 </div>
 
 <!-- ══════════════════════ PAGE 4: CARDS ══════════════════════ -->
