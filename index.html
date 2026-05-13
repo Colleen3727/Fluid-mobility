@@ -927,7 +927,7 @@ document.querySelectorAll('.globe-tab').forEach(btn => {
     btn.classList.add('active');
     currentTab = btn.dataset.tab;
     document.getElementById('globe-list-title').textContent =
-      currentTab === 'near' ? 'Near You' : 'Best Matches';
+      currentTab === 'near' ? 'Near You' : 'Aupairs';
     renderList(currentTab);
   });
 });
@@ -1775,6 +1775,8 @@ textarea.q-input { min-height: 60px; line-height: 1.6; }
   background: #6aadae;
   color: #fff;
   flex: 1.5;
+  font-size: 15px;
+  letter-spacing: 0.03em;
 }
 
 /* unused old classes — kept empty so no layout breaks */
@@ -3576,7 +3578,7 @@ textarea.q-input { min-height: 60px; line-height: 1.6; }
         <span id="globe-list-title">Near You</span>
         <div class="globe-list-tabs">
           <button class="globe-tab active" data-tab="near">Near</button>
-          <button class="globe-tab" data-tab="match">Match</button>
+          <button class="globe-tab" data-tab="match">Aupair</button>
         </div>
       </div>
       <div class="globe-list" id="globe-list"></div>
@@ -3878,7 +3880,7 @@ function shuffle(arr) {
         <div class="card-bio">${p.body}</div>
         <div class="card-actions">
           <button class="card-btn card-btn-pass" data-action="pass">✕</button>
-          <button class="card-btn card-btn-like" data-action="like">♥</button>
+          <button class="card-btn card-btn-like" data-action="like">Entrée</button>
         </div>
       </div>`;
 
