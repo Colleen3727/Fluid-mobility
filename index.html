@@ -3892,10 +3892,8 @@ function shuffle(arr) {
         if (btn.dataset.action === 'like') {
           openPersona(p);
         } else {
-          /* always advance exactly one card forward */
-          const cur = frontSlot();
-          const next = (cur + 1) % N;
-          targetAngle = -(next * ANGLE);
+          /* always advance one card forward — subtract to keep rotating left */
+          targetAngle -= ANGLE;
         }
       });
     });
