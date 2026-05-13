@@ -2861,6 +2861,7 @@ textarea.q-input { min-height: 60px; line-height: 1.6; }
   transform: translateX(100%);
   opacity: 0;
   pointer-events: none;
+  visibility: hidden;
 }
 
 /* header */
@@ -5069,7 +5070,6 @@ document.addEventListener('DOMContentLoaded', function () {
     /* how much the keyboard is pushing up from the bottom */
     const kbHeight = window.innerHeight - (vv.offsetTop + vv.height);
     chatOverlay.style.bottom = Math.max(0, kbHeight) + 'px';
-    chatOverlay.style.top = vv.offsetTop + 'px';
     /* when keyboard is up, remove safe-area padding (already accounted for by bottom offset) */
     if (chatInputBar) {
       chatInputBar.style.paddingBottom = kbHeight > 10 ? '12px' : '';
@@ -5081,7 +5081,6 @@ document.addEventListener('DOMContentLoaded', function () {
   }
   function resetKeyboardAdjust() {
     chatOverlay.style.bottom = '0';
-    chatOverlay.style.top = '0';
     if (chatInputBar) chatInputBar.style.paddingBottom = '';
   }
   if (window.visualViewport) {
