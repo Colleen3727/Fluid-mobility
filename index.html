@@ -4257,13 +4257,12 @@ document.getElementById('btn-submit').addEventListener('click', () => {
     }
     localStorage.setItem('fv-onboarding', JSON.stringify(ob));
 
-    /* auto-fill profile fields from answers */
+    /* always overwrite profile fields from latest answers */
     const profile = JSON.parse(localStorage.getItem('fv-profile-v1')) || {};
-    /* only fill if user hasn't manually set them yet */
-    if (!profile['profile-name'])        profile['profile-name']       = ob.nickname || '';
-    if (!profile['profile-bio'])         profile['profile-bio']        = ob.q1 || '';
-    if (!profile['profile-influences'])  profile['profile-influences'] = ob.q2 || '';
-    if (!profile['profile-era'])         profile['profile-era']        = ob.q3 || '';
+    profile['profile-name']        = ob.nickname || '';
+    profile['profile-bio']         = ob.q1 || '';
+    profile['profile-influences']  = ob.q2 || '';
+    profile['profile-era']         = ob.q3 || '';
     localStorage.setItem('fv-profile-v1', JSON.stringify(profile));
 
     /* update Firebase nickname immediately */
