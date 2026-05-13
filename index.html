@@ -2690,12 +2690,13 @@ textarea.q-input { min-height: 60px; line-height: 1.6; }
 ══════════════════════════════ */
 .chat-overlay {
   position: fixed;
-  inset: 0;
+  top: 0; left: 0; right: 0;
+  bottom: 0;
   z-index: 900;
   background: var(--paper);
   display: flex;
   flex-direction: column;
-  transition: transform 0.38s cubic-bezier(0.32,0.72,0,1), opacity 0.38s;
+  transition: transform 0.38s cubic-bezier(0.32,0.72,0,1), opacity 0.38s, bottom 0.08s linear;
 }
 .chat-overlay.hidden {
   transform: translateX(100%);
@@ -4846,11 +4847,28 @@ document.addEventListener('DOMContentLoaded', function () {
 
   function closeChat() {
     chatOverlay.classList.add('hidden');
+    chatOverlay.style.bottom = '0';
     stopSilenceTimer();
   }
 
   window.openChat = openChat;
   chatBack.addEventListener('click', closeChat);
+
+  /* ── keyboard avoidance: shrink overlay to visible viewport height ── */
+  function adjustForKeyboard() {
+    if (chatOverlay.classList.contains('hidden')) return;
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const offsetBottom = window.innerHeight - (vv.offsetTop + vv.height);
+    chatOverlay.style.bottom = Math.max(0, offsetBottom) + 'px';
+    /* scroll to latest message */
+    const msgs = document.getElementById('chat-msgs');
+    if (msgs) msgs.scrollTop = msgs.scrollHeight;
+  }
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', adjustForKeyboard);
+    window.visualViewport.addEventListener('scroll', adjustForKeyboard);
+  }
 
   /* ── send ── */
   function sendMessage() {
