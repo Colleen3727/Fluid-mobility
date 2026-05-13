@@ -3863,10 +3863,59 @@ document.querySelectorAll('.nav-btn').forEach(btn => {
 
 /* ── AUTO-SPIN RING ── */
 (function () {
-  const svg = document.getElementById('home-ring-svg');
-  let angle = 0;
+  const svg  = document.getElementById('home-ring-svg');
+  const wrap = document.getElementById('home-ring-wrap');
+  let angle      = 0;
+  let autoSpin   = true;
+  let dragging   = false;
+  let dragStartA = 0, dragStartAngle = 0;
+  let dragVel    = 0, lastA = 0;
+
+  function getAngleFromCenter(e) {
+    const r   = wrap.getBoundingClientRect();
+    const cx  = r.left + r.width  / 2;
+    const cy  = r.top  + r.height / 2;
+    const px  = (e.touches ? e.touches[0].clientX : e.clientX);
+    const py  = (e.touches ? e.touches[0].clientY : e.clientY);
+    return Math.atan2(py - cy, px - cx) * 180 / Math.PI;
+  }
+
+  function onStart(e) {
+    dragging   = true;
+    autoSpin   = false;
+    dragVel    = 0;
+    dragStartA = getAngleFromCenter(e);
+    dragStartAngle = angle;
+    lastA      = dragStartA;
+  }
+  function onMove(e) {
+    if (!dragging) return;
+    const a  = getAngleFromCenter(e);
+    dragVel  = a - lastA;
+    lastA    = a;
+    angle    = dragStartAngle + (a - dragStartA);
+  }
+  function onEnd() {
+    if (!dragging) return;
+    dragging = false;
+    let vel  = dragVel;
+    function flick() {
+      if (Math.abs(vel) < 0.02) { autoSpin = true; return; }
+      angle += vel;
+      vel   *= 0.95;
+      requestAnimationFrame(flick);
+    }
+    flick();
+  }
+
+  wrap.style.cursor = 'grab';
+  wrap.addEventListener('pointerdown', e => { onStart(e); wrap.setPointerCapture(e.pointerId); wrap.style.cursor = 'grabbing'; });
+  wrap.addEventListener('pointermove', onMove);
+  wrap.addEventListener('pointerup',   () => { onEnd(); wrap.style.cursor = 'grab'; });
+  wrap.addEventListener('pointercancel', () => { dragging = false; autoSpin = true; wrap.style.cursor = 'grab'; });
+
   function render() {
-    angle += 0.08;
+    if (autoSpin && !dragging) angle += 0.08;
     svg.style.transform = `rotate(${angle}deg)`;
     requestAnimationFrame(render);
   }
