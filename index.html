@@ -147,6 +147,9 @@ async function registerPresence() {
   const meData = {
     nickname,
     tags,
+    q1: profile.q1 || '',
+    q2: profile.q2 || '',
+    q3: profile.q3 || '',
     city:    geo.city,
     country: geo.country,
     lat:     geo.lat,
@@ -356,16 +359,43 @@ function haversine(lat1, lon1, lat2, lon2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
 
-/* ── tag match score — returns 0-100 percentage ── */
-function matchScore(tagsA, tagsB) {
+/* ── extract meaningful keywords from free-text answers ── */
+function extractKeywords(text) {
+  if (!text) return [];
+  const stop = new Set(['the','a','an','and','or','but','i','me','my','we','you','it','is','was','are','be','to','of','in','on','at','for','with','that','this','have','has','do','did','not','so','if','as','by','he','she','they','who','can','will','just','from','all','when','what','how','there','their','its','our','your','want','more','im','its','yes','no','idk','like','really','very','much','about','think','know','feel','get','got','make','way','things','something','anything','everything','nothing','one','two','three','also','because','people','time','always','never','every','maybe','would','could','should','still','even','back','kind','bit']);
+  const en = text.toLowerCase().replace(/[^a-z\s]/g,' ').split(/\s+/).filter(w => w.length > 2 && !stop.has(w));
+  const cjk = (text.match(/[一-鿿぀-ヿ가-힯]/g) || []);
+  return [...new Set([...en, ...cjk])];
+}
+
+/* ── combined match score: tags + text keywords → 0-100 percentage ── */
+function matchScore(tagsA, tagsB, textA, textB) {
+  // --- tag similarity (Jaccard) ---
   const a = tagsA || [], b = tagsB || [];
-  if (!a.length && !b.length) return 72; // both have no tags → neutral
-  const setA = new Set(a), setB = new Set(b);
-  const intersection = a.filter(t => setB.has(t)).length;
-  const union = new Set([...a, ...b]).size;
-  const jaccard = union > 0 ? intersection / union : 0;
-  // scale to 20–100 range so everyone has at least some affinity
-  return Math.round(20 + jaccard * 80);
+  const tagUnion = new Set([...a, ...b]).size;
+  const tagIntersect = a.filter(t => new Set(b).has(t)).length;
+  const tagScore = tagUnion > 0 ? tagIntersect / tagUnion : null;
+
+  // --- text keyword similarity ---
+  const kwA = extractKeywords((textA||[]).join(' '));
+  const kwB = extractKeywords((textB||[]).join(' '));
+  const kwUnion = new Set([...kwA, ...kwB]).size;
+  const kwIntersect = kwA.filter(w => new Set(kwB).has(w)).length;
+  const kwScore = kwUnion > 0 ? kwIntersect / kwUnion : null;
+
+  // combine: weight tags 60%, text 40%; fall back if one is missing
+  let raw;
+  if (tagScore !== null && kwScore !== null) {
+    raw = tagScore * 0.6 + kwScore * 0.4;
+  } else if (tagScore !== null) {
+    raw = tagScore;
+  } else if (kwScore !== null) {
+    raw = kwScore;
+  } else {
+    raw = 0.52; // both empty → neutral ~62%
+  }
+
+  return Math.round(20 + raw * 80);
 }
 
 /* ── continent outlines from Natural Earth 110m [lat,lon] ── */
@@ -861,9 +891,12 @@ function renderList(tab) {
   const myLat = window._fvMyLat || 0;
   const myLon = window._fvMyLon || 0;
   const myTags = window._fvMyTags || [];
+  const myTexts = [window._fvMyData?.q1||'', window._fvMyData?.q2||'', window._fvMyData?.q3||''];
   if (!el) return;
 
   const others = allUsers.filter(u => u.uid !== window._fvMyUid);
+
+  const getScore = u => matchScore(myTags, u.tags||[], myTexts, [u.q1||'', u.q2||'', u.q3||'']);
 
   let sorted;
   if (tab === 'near') {
@@ -872,9 +905,7 @@ function renderList(tab) {
       haversine(myLat, myLon, b.lat||0, b.lon||0)
     );
   } else {
-    sorted = [...others].sort((a, b) =>
-      matchScore(myTags, b.tags||[]) - matchScore(myTags, a.tags||[])
-    );
+    sorted = [...others].sort((a, b) => getScore(b) - getScore(a));
   }
 
   if (!sorted.length) {
@@ -885,7 +916,7 @@ function renderList(tab) {
   el.innerHTML = '';
   sorted.slice(0, 20).forEach(u => {
     const dist = haversine(myLat, myLon, u.lat||0, u.lon||0);
-    const score = matchScore(myTags, u.tags||[]);
+    const score = getScore(u);
     const distStr = dist < 1 ? 'nearby' : dist < 1000 ? Math.round(dist) + ' km' : (Math.round(dist/100)/10) + 'k km';
     const card = document.createElement('div');
     card.className = 'globe-user-card';
